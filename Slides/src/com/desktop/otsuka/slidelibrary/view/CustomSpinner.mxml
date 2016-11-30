@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" width="100%" height="100%">
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	<!-- Hi Friends ! we are here to make a custom spinner that blocks the whole app attractively -->
+	
+	<fx:Script>
+		<![CDATA[
+			
+			private var frameCounter:int = 0;
+			
+			public var isSpinning:Boolean = false;
+			public function startSpinner():void{
+				
+				if ( isSpinning ) return;
+				
+				rotatingCanvas.rotation = 0;
+				this.visible = true;
+				this.includeInLayout = true;
+				
+				spinnerImage.addEventListener(Event.ENTER_FRAME, onEnterFrame );
+				isSpinning = true;
+			}
+			public function closeSpinner():void{
+				
+				if ( ! isSpinning ) return;
+				
+				spinnerImage.removeEventListener(Event.ENTER_FRAME, onEnterFrame );
+				this.visible = false;
+				this.includeInLayout = false;
+				
+				isSpinning = false;
+			}
+			
+			//---------------------------------------------------------------------
+			
+			private function onEnterFrame(e:Event):void{
+				frameCounter ++;
+				if ( frameCounter == 2 )
+				{
+					rotatingCanvas.rotation += 30;
+					frameCounter = 0;
+				}
+				
+			}
+		]]>
+	</fx:Script>
+	
+	<mx:Canvas id="modalCanvas"
+			   backgroundAlpha=".4"
+			   backgroundColor="#aaaaaa"
+			   width="100%" height="100%"
+			   >
+		
+	</mx:Canvas>
+	
+	<!--
+	<s:Image id="spinnerImageBase"
+			 source="@Embed('assets/images/spinner_radial.png')"
+			 x="484" y="331"
+			 alpha=".5"
+			 mask="{spinnerImage}"
+			 /> -->
+	
+	<mx:Canvas id="rotatingCanvas"
+			   width="300" height="300"
+			   backgroundAlpha="0"
+			   x="512" y="359"
+			   clipContent="false"
+
+			   >
+			<s:Image id="spinnerImage"
+					 source="@Embed('assets/images/spinner_radial.png')"
+					 x="-28" y="-28"
+					 alpha="1"		
+					 
+					 />
+		
+					 
+	</mx:Canvas>
+			   
+</s:Group>

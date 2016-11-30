@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 width="300" height="768"
+		 >
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.ClinicalPathwaysLauncher;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import flash.net.navigateToURL;
+			
+			import mx.controls.Alert;
+			
+			private var numBrandBooelan:Boolean;
+			private var clinicalPathwaysLauncher:ClinicalPathwaysLauncher;
+			//private var model:SlideSystemModel = new SlideSystemModel ();
+			
+			
+			public function setBrandImage(selectedBrandObject:Object):void{
+				dbModel._activateKeys = false;
+				switch (selectedBrandObject.name)
+				{
+					
+					case "nnpe":
+						nnpeBrandImg.visible = true;
+						excelBrandImg.visible = false;
+						break
+					case "excel":
+						excelBrandImg.visible = true;
+						nnpeBrandImg.visible = false;
+						break
+					default:
+						Alert.show("something wrong with brands");	
+						
+				}
+				
+				if(dbModel._moreThanOneBrand == true){
+					//	if(numBrandBooelan == true){
+					homeButton.visible = true;
+					helpButton.x=85;
+					logOutButton.x = 223;// 120;
+				}// test to see if user has more than one brand]
+				else{
+					homeButton.visible = false;
+					logOutButton.x = 15;
+					helpButton.x=223;
+				}// end else statement
+				
+				trace("numBrandBooelan PresentationSelection "+numBrandBooelan);
+			}
+			
+			protected function corePresentationsButton_clickHandler(event:MouseEvent):void
+			{
+				dbModel._activateKeys=false;
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.PRESENTATIONS_LIST;
+				slidesEvent.showCorePresentationsList = true;
+				dispatchEvent(slidesEvent);
+				
+			}
+			
+			protected function customPresentationsButton_clickHandler(event:MouseEvent):void
+			{
+				dbModel._activateKeys=false;
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.PRESENTATIONS_LIST;
+				slidesEvent.showCorePresentationsList = false;
+				dispatchEvent(slidesEvent);
+				
+			}
+			
+			protected function resourcesButton_clickHandler(event:MouseEvent):void
+			{
+				dbModel._activateKeys=false;
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.RESOURCES_LIST;
+				dispatchEvent(slidesEvent);
+				
+			}
+			
+			protected function clinicalPathwaysButton_clickHandler(event:MouseEvent):void
+			{
+				dbModel._activateKeys=false;
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.EXTERNAL_APPS_LIST;
+				dispatchEvent(slidesEvent);
+				
+			}
+			
+			
+			protected function logOutButton_clickHandler(event:MouseEvent):void
+			{
+				dbModel._activateKeys=false;
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.LOGOUT;
+				dispatchEvent(slidesEvent);				
+			}	
+			//==========================================================================================			
+			// GETTERS AND SETTERS
+			//==========================================================================================
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+			protected function helpButton_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				// if the user has selected excel then launch the excel help guide
+				// if the uiser has selected the nnpe then launch the nnpe help guide
+				
+//				if ( nnpeBrandImg.visible)
+//				{
+//					//navigateToURL(new URLRequest('assets/help/1364_TABS_UserGuide_v13.pdf'));
+//					navigateToURL(new URLRequest('assets/help/NNPE_userguide.pdf'));
+//				}else if ( excelBrandImg.visible )
+//				{
+//					navigateToURL(new URLRequest('assets/help/EXCEL_userguide.pdf'));
+//					//navigateToURL(new URLRequest('assets/help/1364_ADF_UserGuide_v23.pdf'));
+//					
+//				}
+				
+				dbModel._activateKeys=false;
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.HELP_LIST;
+				slidesEvent.nnpeImageVisible = nnpeBrandImg.visible;
+				dispatchEvent(slidesEvent);
+			}
+			
+			protected function backButton_clickHandler(event:MouseEvent):void
+			{
+				dbModel._activateKeys=false;
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.RETURN_TO_BRANDS;
+				dispatchEvent(slidesEvent);
+				/* nnpeBrandImg.visible = true;
+				excelBrandImg.visible = true; */
+				
+			}
+			
+		]]>
+	</fx:Script>
+	
+	<!-- background -->
+	
+	<s:Image id="topBlueBar"
+			 />
+	
+	<s:Image id="blueBackground"
+			 source = "@Embed('assets/images/masterBackground.jpg')"
+			 y="45"
+			 scaleY="1.08"
+			 />	
+	
+	<s:Line id="dividingVLine"/>
+	
+	<!--   buttons   -->
+	
+	<s:Button id="logOutButton"			  
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.LogoutButtonSkin"			  
+			  color="white"
+			  x="{logOutButton.x}" y = "10"
+			  click="logOutButton_clickHandler(event)"
+			  />
+	
+	<!-- 5-21-13  Adding back button to choose between brands without logging out-->
+	<s:Button id="homeButton"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.HomeButtonSkin"
+			  color="white"
+			  x="15"
+			  y="10"
+			  click="backButton_clickHandler(event)"
+			  visible="{homeButton.visible}"
+			  />
+	
+	<s:Button id="helpButton"			  
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.HelpButtonSkin"			  
+			  color="white"
+			  x="{helpButton.x}" y = "10"
+			  click="helpButton_clickHandler(event)"
+			  
+			  />
+	<!-- click="navigateToURL(new URLRequest('http://keypoint.ctlsgroup.com/static/keypointhelp.pdf'));"
+	
+	click="navigateToURL(new URLRequest('assets/help/KeyPoint_Userguide.pdf'));"
+	
+	-->
+	<!--    BRAND IMAGES -->
+	
+	<s:Image id="excelBrandImg"
+			 source="@Embed('assets/images/excelLogo.png')"
+			 horizontalCenter="0"
+			 visible="false"
+			 includeInLayout="{excelBrandImg.visible}"
+			 y="100"
+			 />
+	
+	<s:Image id="nnpeBrandImg"
+			 source="@Embed('assets/images/nnpeLogo.png')"
+			 horizontalCenter="0"
+			 visible="false"
+			 includeInLayout="{nnpeBrandImg.visible}"
+			 y="100"
+			 />
+	
+	<s:VGroup x="10" y="250" width="290">	
+		
+		
+		<s:Button id="corePresentationsButton"				  
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.PresentationsLibraryButtonSkin"	 
+				  click="corePresentationsButton_clickHandler(event)"
+				  />
+		
+		<s:Button id="customPresentationsButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.MyPresentationsSkin"
+				  click="customPresentationsButton_clickHandler(event)"
+				  />
+		
+		<s:Button id="clinicalPathwaysButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.PathwaysButtonSkin"
+				  click="clinicalPathwaysButton_clickHandler(event)"
+				  includeInLayout="{clinicalPathwaysButton.visible}"
+				  />
+		
+		<s:Button id="resourcesButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.ResourcesButtonSkin"
+				  click="resourcesButton_clickHandler(event)"
+				  includeInLayout="{resourcesButton.visible}"
+				  />
+	</s:VGroup>
+	
+	<!--<s:Label id="nnpeFooterTxt" text="570US13PF00601   February 2013   03US13P-1108" 
+	bottom="20"
+	horizontalCenter="0"
+	color="0x000000" fontSize="11" fontWeight="bold"
+	includeInLayout="{nnpeFooterTxt.visible}"
+	visible="{nnpeBrandImg.visible}"
+	/> -->
+	
+	<s:Label id="nnpeFooterTxt" text="June 2013 0313P-8380" 
+			 bottom="20"
+			 horizontalCenter="0"
+			 color="0x000000" fontSize="11" fontWeight="bold"
+			 includeInLayout="{nnpeFooterTxt.visible}"
+			 visible="{nnpeBrandImg.visible}"
+			 /> 
+	
+	<s:Label id="excelFooterTxt" 			 
+			 text="January 2015 09US14EBK0035" 
+			 bottom="20"
+			 horizontalCenter="0"
+			 color="0x000000" fontSize="11" fontWeight="bold"
+			 includeInLayout="{excelFooterTxt.visible}"
+			 visible="{excelBrandImg.visible}"
+			 /> 
+		<!-- text="December 2013 09US13EPB0009" -->
+</s:Group>

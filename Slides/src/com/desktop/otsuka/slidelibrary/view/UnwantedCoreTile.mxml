@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+				   xmlns:s="library://ns.adobe.com/flex/spark" 
+				   xmlns:mx="library://ns.adobe.com/flex/mx" 
+				   xmlns:view="com.desktop.otsuka.slidelibrary.view.*"
+				   >
+	
+	<fx:Declarations>
+		<s:BitmapImage id="whiteArrowOpen" source="@Embed('assets/images/whitearrow_open2.png')"/>
+		<s:BitmapImage id="whiteArrowClosed" source="@Embed('assets/images/whitearrow_closed2.png')"/>
+		
+	</fx:Declarations>
+
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.controller.UnwantedTileWorker;
+			
+			import mx.collections.ArrayCollection;
+			import mx.skins.halo.TitleBackground;
+			
+			private var _presentationObject:Object;
+			private var _unwantedCoreSlidesAC:ArrayCollection;
+			private var _loadedSlidesMap:Object;
+			
+			public var worker:UnwantedTileWorker;
+			
+			//================================================================================================
+			// INITIALIZE
+			//================================================================================================
+			
+			public function init(unwantedCoreSlidesAC:ArrayCollection,loadedSlidesMap:Object,$presentationObject:Object):void{
+				//_unwantedCoreSlidesAC = unwantedCoreSlidesAC;	
+				//_loadedSlidesMap = loadedSlidesMap;
+				worker = new UnwantedTileWorker(unwantedSlidesVGroup,arrowImage,$presentationObject,0);
+				_presentationObject = $presentationObject;
+				addEventListeners(worker);
+				worker._unwantedSlidesAC = unwantedCoreSlidesAC;
+				worker._loadedAnySlidesMap = loadedSlidesMap;
+//				BindingUtils.bindSetter(function(isVisible:Boolean):void{
+//					unwantedSlidesVGroup.visible = isVisible;
+//					unwantedSlidesVGroup.includeInLayout = isVisible;
+//					trace("unwanted slides vgroup height: " + unwantedSlidesVGroup.height);
+//					trace("unwanted core tile isVisible: " + isVisible);
+//				},this,["worker","unwantedSlidesVGroupVisible"]);
+				
+			}
+			private function addEventListeners(worker:UnwantedTileWorker):void{
+				worker.addEventListener(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP, function (se:SlidesEvent):void{					
+					var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP);
+					slidesEvent.slide = se.slide;
+					slidesEvent.slides = se.slides;
+					dispatchEvent(slidesEvent);
+					unwantedSlidesVGroup.visible = !unwantedSlidesVGroup.visible;
+					unwantedSlidesVGroup.visible = !unwantedSlidesVGroup.visible;
+					});
+				worker.addEventListener(SlidesEvent.ZOOM_IN_ON_SLIDE, function (se:SlidesEvent):void{
+					var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.ZOOM_IN_ON_SLIDE);
+					slidesEvent.slide = se.slide;
+					slidesEvent.bitmap = se.bitmap;
+					dispatchEvent(slidesEvent);
+				});
+			}
+			
+			//================================================================================================
+			// PUBLIC FUNCTION
+			//================================================================================================
+			
+			public function onRemoveUnwantedSlideThroughDragDrop(slide:Object):void{
+				worker.onRemoveUnwantedSlideThroughDragDrop(slide);
+			}
+			
+			//================================================================================================
+			// POPULATE
+			//================================================================================================
+			
+			public function populateUnwantedCoreSlides():void{
+				
+				worker.populateUnwantedSlides();
+			}
+			public function repopulateCore(unwantedCoreSlidesAC:ArrayCollection):void{
+				
+				unwantedSlidesVGroup.removeAllElements();
+				worker._unwantedSlidesAC = unwantedCoreSlidesAC; 
+				worker.populateUnwantedSlides();
+				unwantedSlidesVGroup.visible = false;
+				unwantedSlidesVGroup.visible = true;	// becomes visible when slide is added
+			}
+			
+			//================================================================================================
+			// MISC
+			//================================================================================================
+			
+			public function getVisibleHeight():Number{
+				return worker.getVisibleHeight();
+			}
+			
+			//================================================================================================
+			// Rotate Arrow
+			//================================================================================================
+	
+			public function rotateArrow(e:Event):void{
+				if ( unwantedSlidesVGroup.visible && unwantedSlidesVGroup.height!=0)
+				{				trace("Arrow is Open State");
+					//arrowImage.rotation = 0;
+					arrowImage.source =whiteArrowOpen.source;
+				}
+				else
+				{   
+					trace("Arrow is closed State");
+					//	arrowImage.rotation = 90;
+					arrowImage.source = whiteArrowClosed.source;
+				}	
+				
+			}
+		]]>
+	</fx:Script>
+	
+	<s:Image id="tileBackgroundImage"
+			 source="@Embed('assets/images/coreBackground.png')"
+			 width = "290"
+			 height="50"
+			 />
+	
+	<s:Label id="coreDeckTitleLabel"
+			 text="Core"
+			 width="290"
+			 color="0xffffff"
+			 textAlign="left"
+			 fontSize="16"
+			 y= "20"
+			 x="10"
+			 fontWeight="bold"
+			 />
+	<!-- Formally in Image 'arrowImage'tag-->
+	<!-- rotation="{(unwantedSlidesVGroup.visible ? 90 : 0 )}"  -->
+	<s:Image id="arrowImage"
+			 source="{(unwantedSlidesVGroup.visible ? whiteArrowOpen.source : whiteArrowClosed.source )}"
+			 
+			 x="265"
+			 y="15"
+			
+			 />
+	
+	<!-- Invisible button -->
+	<s:Button width = "290"
+			  height="50" alpha="0"  
+			  click="worker.arrowImage_clickHandler(event);invalidateDisplayList();validateNow()"
+			   useHandCursor="true" buttonMode="true">
+		
+	</s:Button>
+
+	<s:Scroller  width="{tileBackgroundImage.width-5}" 
+				y="{tileBackgroundImage.y+50}"
+				horizontalScrollPolicy="off">
+		
+	
+		<s:VGroup id="unwantedSlidesVGroup"
+				  width="280"
+				  y = "55"
+				  gap="10"
+				  includeInLayout="{unwantedSlidesVGroup.visible}"
+				  paddingLeft="5"
+				  />
+
+	</s:Scroller>
+	
+
+
+
+
+
+</s:Group>

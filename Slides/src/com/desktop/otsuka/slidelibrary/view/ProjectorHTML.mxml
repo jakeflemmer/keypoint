@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx">
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	
+	<fx:Script>
+		<![CDATA[
+			import flash.net.navigateToURL;
+			
+			import mx.controls.Alert;
+			
+			public var projectorWindow:NativeWindow;
+			public var isProjecting:Boolean;
+			
+			private var _screen:Screen;
+			private var _screenBounds:Rectangle;
+			private var _background:Shape;
+			
+			private var storageFolder:File;
+			
+			public function startProjectorWindow(keyPressHandlers:Function):Boolean
+			{
+				var numberOfScreen:Array = Screen.screens;
+			/* 	if ( numberOfScreen.length < 2 )
+				{	
+					_screen= Screen.screens[0];
+					_screenBounds = _screen.bounds;
+							//Note have presentation view activated with one screen
+					//Alert.show("You must connect computer to external display before being able to present","Alert");
+					//isProjecting = false;
+					//return false;  //Note 
+				}			
+				
+				else{
+					_screen = Screen.screens[1];  // V2 Baby!!//Screen.mainScreen;
+					_screenBounds = _screen.bounds;
+				} */
+				
+				_screen= Screen.screens[0];
+				_screenBounds = _screen.bounds;
+				isProjecting = true;
+				
+				var windowInitOptions:NativeWindowInitOptions = new NativeWindowInitOptions();
+				windowInitOptions.systemChrome = NativeWindowSystemChrome.NONE; //STANDARD
+				windowInitOptions.type = NativeWindowType.NORMAL; //UTILITY //NORMAL (popup will appear in the win/linux taskbar)
+				windowInitOptions.minimizable = false;
+				windowInitOptions.maximizable = false;
+				windowInitOptions.transparent = false;
+				windowInitOptions.resizable = false;
+				//windowInitOptions.owner = null;
+				
+				projectorWindow = new NativeWindow( windowInitOptions );
+				projectorWindow.stage.scaleMode = StageScaleMode.NO_SCALE;
+				projectorWindow.stage.align = StageAlign.TOP_LEFT;
+				
+				projectorWindow.x = _screenBounds.x;
+				projectorWindow.y = _screenBounds.y;
+				projectorWindow.width = _screenBounds.width;
+				projectorWindow.height = _screenBounds.height;
+				projectorWindow.alwaysInFront = true;
+				
+				_background = new Shape();
+				_background.graphics.beginFill(0x0, 1.0);
+				_background.graphics.drawRect(0,0, _screenBounds.width, _screenBounds.height);
+				_background.graphics.endFill();
+				
+				this.width = _screenBounds.width;
+				this.height = _screenBounds.height;
+				htmlView.width = _screenBounds.width;
+				htmlView.height = _screenBounds.height;
+				
+				projectorWindow.stage.addChild(_background);
+				projectorWindow.stage.addChild(htmlView);
+				
+				projectorWindow.activate();
+				
+				projectorWindow.stage.displayState = StageDisplayState.FULL_SCREEN_INTERACTIVE; 
+				
+				projectorWindow.stage.addEventListener(KeyboardEvent.KEY_UP, keyPressHandlers);
+				
+				return true;
+			}
+			
+			public function displayHtml(slideObject:Object):void
+			{
+				if ( ! isProjecting ) return;
+				
+				var destinationFolder:File;	
+				var localPath:String;
+				
+				storageFolder = File.applicationStorageDirectory.resolvePath("slides" + File.separator);			
+				destinationFolder = storageFolder.resolvePath(slideObject.slide_id);			
+				
+				var htmlLocation:String;
+				var filename:String; 
+				
+				htmlLocation = slideObject.html;
+				filename = htmlLocation.substr((htmlLocation.lastIndexOf("/") + 1)); //text from last "/" to end 
+				localPath = destinationFolder.url +"/"+ filename;
+												
+				//htmlView.location = localPath;
+				navigateToURL(new URLRequest(localPath));
+				
+			}
+			
+			public function displayTitleSlideWidget(titleSlideWidget:TitleSlideWidget):void{
+				
+				if ( ! isProjecting ) return;
+				titleSlideWidget.scaleX = _screenBounds.width/titleSlideWidget.width;
+				titleSlideWidget.scaleY = _screenBounds.height/titleSlideWidget.height;
+				addElement( titleSlideWidget );
+			}
+			
+			
+			public function stopProjectorWindow():void
+			{
+				if ( ! isProjecting ) return;
+				if( projectorWindow && ( ! projectorWindow.closed ) ) { 
+					projectorWindow.stage.removeEventListener(KeyboardEvent.KEY_UP, projectorWindowKeyUpHandler);
+					
+					if( projectorWindow.stage.contains(_background) ) projectorWindow.stage.removeChild(_background);
+					if( projectorWindow.stage.contains(htmlView) ) projectorWindow.stage.removeChild(htmlView);
+					
+					trace("Stopping projector window.");
+					
+					projectorWindow.close();
+				}
+				
+				isProjecting = false;
+			}
+			
+			protected function projectorWindowKeyUpHandler(event:KeyboardEvent):void
+			{
+				switch( event.keyCode ) { 
+					case Keyboard.UP:
+						trace("up key pressed");
+						break;
+					case Keyboard.DOWN:
+						break;
+					case Keyboard.LEFT:
+						break;
+					case Keyboard.PAGE_UP : 
+						trace("left key pressed");
+						//eventDispatcher.dispatchEvent(new PresentationEvent(PresentationEvent.LEFT_KEY_PRESSED));
+						break;
+					case Keyboard.PAGE_DOWN:
+						break;
+					case  Keyboard.RIGHT :
+						break;
+						//eventDispatcher.dispatchEvent(new PresentationEvent(PresentationEvent.RIGHT_KEY_PRESSED));
+						break;
+					case Keyboard.ESCAPE : 
+						//eventDispatcher.dispatchEvent(new PresentationEvent(PresentationEvent.ESCAPE_KEY_PRESSED));
+						break;
+					case Keyboard.BACKSPACE : 
+						//eventDispatcher.dispatchEvent(new PresentationEvent(PresentationEvent.ESCAPE_KEY_PRESSED));
+						break;
+					default : break;
+				}
+			}
+		]]>
+	</fx:Script>
+	
+	
+	<mx:HTML id="htmlView"
+			 
+			 />
+	
+</s:Group>

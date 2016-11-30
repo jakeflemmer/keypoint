@@ -1,0 +1,874 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" xmlns:view="com.desktop.otsuka.slidelibrary.view.*"		 
+		 >
+	<s:Rect width="724" height="720" y = "45">
+		<s:fill>
+			<s:SolidColor color="0xdddddd" />
+		</s:fill>
+	</s:Rect>
+	
+	<fx:Metadata>
+		[Event(name="keyboardDispatch", type="flash.events.Event")]
+	</fx:Metadata>
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here --> 
+	</fx:Declarations>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.model.SlideSystemModel;
+			import com.desktop.otsuka.slidelibrary.controller.PresentCommand;
+			import com.desktop.otsuka.slidelibrary.controller.PrintPDFsCommand;
+			import com.desktop.otsuka.slidelibrary.controller.PrintPresentationCommand;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesUtilities;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			import com.desktop.otsuka.slidelibrary.utils.DisplayUtils;
+			
+			import flash.events.EventDispatcher;
+			
+			import mx.controls.Alert;
+			import mx.core.UIComponent;
+			import mx.managers.PopUpManager;
+			import mx.utils.DisplayUtil;
+			
+			import spark.utils.TextFlowUtil;
+			
+			import flashx.textLayout.conversion.TextConverter;
+			
+			private const VIEW_NOTES:String = "VIEW NOTES";
+			private const VIEW_SLIDE:String = "VIEW SLIDE";
+			
+			private var _projectorWindow:PresentView;
+			
+			
+			private var _slides:Array; // slide objects from JSON sorted into sequence
+			[Bindable]
+			private var _slidesLength:uint;
+			[Bindable]
+			private var _index:uint = 0;
+			private var _loadedSlidesMap:Object;// = new Object();
+			
+			private var _presentationObject:Object;
+			
+			[Bindable]
+			private var presentationTitle:String;
+			
+			//private var _titleSlideId:uint;
+			
+			private var _titleSlideSequence:uint;
+			
+			
+
+			//==============================================================================
+			// INIT
+			//==============================================================================
+			
+
+			
+			//public function init($slides:Array,$loadedSlidesMap:Object, $presentationObject:Object):void{
+			public function init($slides:Array,slideSystemModel:SlideSystemModel, $presentationObject:Object):void{	
+				dbModel._activateKeys=true
+				_index = 0;
+				_slides = theWantedSlidesOnly($slides);
+				sortTheSlides();
+				//_loadedSlidesMap = $loadedSlidesMap;
+				_loadedSlidesMap = slideSystemModel.loadedSlidesMap;
+				
+				_slidesLength = _slides.length;
+				_presentationObject = $presentationObject;
+				
+			//	stage.addEventListener(KeyboardEvent.KEY_UP, keyUpHandlers,false, int.MAX_VALUE);
+				stage.addEventListener(KeyboardEvent.KEY_UP, keyUpHandlers, int.MAX_VALUE);
+				//stage.addEventListener(KeyboardEvent.KEY_UP,setSpacebar,int.MAX_VALUE);
+				
+				pickOutTheTitleSlide();
+				
+				putASlideImageInTheMainWindow(getSlideBitmap());
+				putASlideImageIntoTheNextThumbnailWindow(getSlideBitmap(1));
+				putASlideImageIntoThePreviousThumbnailWindow(null); // clear it
+				
+				if ( dbModel.presentationIsCustomPresentation($presentationObject))
+				{
+					this.presentationTitle = $presentationObject.custom_title;
+				}
+				else
+				{
+					this.presentationTitle = $presentationObject.presentation_name;
+				}
+				showSlideButton_clickHandler(null);
+			}
+			private function sortTheSlides():void{
+				
+				
+				
+				var testSlide:Object = _slides[0];
+				
+			
+				if ( testSlide.customSequence > 0 )
+				{
+					
+					_slides.sortOn("customSequence",Array.NUMERIC);
+				//	_slides.sortOn(["sequence","customSequence"],Array.NUMERIC);
+				//	_slides.sortOn(["customSequence","sequence"],Array.NUMERIC);
+					
+			/*		for(var k=0; k<_slides.length-1; k++)
+					{
+						if(_slides[k]["customSequence"] != 0)
+						{
+							if(_slides[k]["customSequence"]==_slides[k+1]["customSequence"])
+							{
+								var temp2:Number = _slides[k+1]["customSequence"];
+								temp2++;
+								//_slides[k+1]["customSequence"] = temp2;
+								trace("temp2 "+temp2);
+							}
+						}
+					}// avoid duplicate Custom sequence*/
+					
+			/* 		for(var i=0; i<_slides.length; i++)
+					{
+						for(var j=0; j<_slides.length-1;j++)
+						{
+							if(_slides[j]["customSequence"] == 0)
+							{
+								if(_slides[j]["sequence"] > _slides[j+1]["sequence"])
+								{
+									var temp:Object=_slides[j];
+									_slides[j]=_slides[j+1];
+									_slides[j+1] = temp;
+								
+								}//swap
+							}
+						}
+					
+					} */// end bubble sort or any remaining new Sequence slides
+				}//end if
+				else{
+					_slides.sortOn("sequence",Array.NUMERIC);
+				}
+				/* if(testSlide.customSequence == 0){
+					_slides.sortOn(["customSequence","sequence"],Array.NUMERIC);
+				} */
+				
+				
+				
+//				trace("testSlide customsequence "+testSlide.customSequence);
+//				for(var i=0; i<_slides.length;i++)
+//				{
+//					trace("Custom "+i+"  _slides array "+_slides[i]["customSequence"]+"  "+"Sequence "+i +" _slides array "+_slides[i]["sequence"]);
+//					trace("Slide ID "+_slides[i]["slide_id"]);
+//				}
+			}
+			
+			private function theWantedSlidesOnly(allSlides:Array):Array{
+				var onlyWantedSlides:Array = new Array();
+				for ( var i:uint = 0 ; i < allSlides.length; i++ )
+				{
+					var slide:Object = allSlides[i];
+					
+					if ( slide.unwanted == false)
+					{
+						onlyWantedSlides.push(slide);
+					}					
+				}
+				if ( onlyWantedSlides.length < 1 ) throw new Error("there are no wanted slides in this presentation");
+				return onlyWantedSlides;				
+			}
+			
+			//==============================================================================
+			// DISPLAY THE SLIDES
+			//==============================================================================
+			
+			private function putASlideImageInTheMainWindow(slideBitmap:Bitmap):void{
+								
+				mainPreviewWindow.source = slideBitmap;
+				if ( !slideBitmap) return;
+				//mainPreviewWindow.width = 700; //scaleX = ( 700 / slideBitmap.width );
+				//mainPreviewWindow.height = 500; //scaleY = ( 500 / slideBitmap.height );
+				// also update the notes
+				var notes:String = dbModel.getSlideNotesFromSlideId( _slides[_index].slide_id );
+				//notesTextArea.text = notes;
+				//var notes:String = "<p>The quick brown <b>fox</b> <br/> jumps over the lazy <i>dog</i>.</p>";
+				if ( notes ){
+				//try
+				//{
+					notesTextArea.htmlText = notes;
+				//}
+				//catch (e:Error)
+				//{
+				//	trace("something is wrong with the notes on this slide");
+				//	notesTextArea.text = notes;
+				//}
+				}
+				// TITLE SLIDE
+				var slideId:int = _slides[_index].sequence as int; //NOTE
+				//var slideId:int = _slides[_index].slide_id as int; //NOTE
+				if ( slideId == _titleSlideSequence )
+				//if ( slideId == _titleSlideId )
+				{
+					if ( dbModel.presentationIsCustomPresentation(_presentationObject) )
+					{						
+						initTheTitleWidget(mainPreviewWindow,false);
+						return;
+					}
+				}
+				titleSlideWidget.visible = false;
+			}
+			private function initTheTitleWidget(uic:UIComponent,takeParent:Boolean):void{ 
+				
+				if ( mainPreviewWindow.visible == false) return;
+				titleSlideWidget.inEditMode = false;
+				titleSlideWidget.makeTitleSlideWidgetMatchDimensionsOfUIC(uic,takeParent,_presentationObject.presentation_id,_presentationObject.custom_presentation_id as int);
+				titleSlideWidget.visible = true;
+				titleSlideWidget.loadTheTileSlideFromTheDatabase();
+				titleSlideWidget.addEventListener("CLOSE_ME", function (e:Event):void{
+					titleSlideWidget.visible = false;
+				});
+			}
+			private function putASlideImageIntoTheNextThumbnailWindow(slideBitmap:Bitmap):void{
+				
+				nextThumbnailWindow.source = slideBitmap;
+				//if ( !slideBitmap) return;
+				//nextThumbnailWindow.scaleX = ( 133 / slideBitmap.width );
+				//nextThumbnailWindow.scaleY = ( 100 / slideBitmap.height );
+			}
+			private function putASlideImageIntoThePreviousThumbnailWindow(slideBitmap:Bitmap):void{
+				
+				previousThumbnailWindow.source = slideBitmap;
+				//if ( !slideBitmap) return;
+				//previousThumbnailWindow.scaleX = ( 133 / slideBitmap.width );
+				//previousThumbnailWindow.scaleY = ( 100 / slideBitmap.height );
+			}
+					
+			
+			//======================================================================
+			// KEYBOARD HANDLERS
+			//======================================================================
+		/*  	protected override function keyUpHandlers(e:KeyboardEvent):void{
+				if(e.keyCode == Keyboard.SPACE){
+					e.preventDefault();
+					e.stopImmediatePropagation();
+				}
+				
+			}  */
+				
+			private function setSpacebar(e:KeyboardEvent):void{
+				trace(e.keyCode);
+				if(e.keyCode == 32) //spacebar
+				{
+					e.preventDefault();
+					e.stopImmediatePropagation();
+
+				}
+				
+			}
+			protected function keyUpHandlers(event:KeyboardEvent):void
+			{
+			
+			   if(dbModel._activateKeys){
+				  	switch( event.keyCode ) 
+				  { 
+				 	case Keyboard.N:
+						if ( nextButton.enabled )
+						{
+							nextSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.SPACE:
+						/* event.preventDefault();
+						event.stopImmediatePropagation(); */
+						if ( nextButton.enabled )
+						{
+							
+							nextSlideButtonClickHandler(null);	
+							
+						}
+						setSpacebar(event);
+						//event.preventDefault();
+						//event.stopImmediatePropagation();
+						break;
+					case Keyboard.ENTER:
+						if ( nextButton.enabled )
+						{
+							nextSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.DOWN:
+						if ( nextButton.enabled )
+						{
+							nextSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.RIGHT : 
+						if ( nextButton.enabled )
+						{
+							nextSlideButtonClickHandler(null);	
+						}						
+						break;
+					 case Keyboard.UP:
+						 if ( previousButton.enabled )
+						 {
+							 prevSlideButtonClickHandler(null);	
+						 }						
+						 break;
+					case Keyboard.LEFT :
+						if ( previousButton.enabled )
+						{
+							prevSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.P:
+						if ( previousButton.enabled )
+						{
+							prevSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.PAGE_UP:
+						if ( previousButton.enabled )
+						{
+							prevSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.DELETE:
+						if ( previousButton.enabled )
+						{
+							prevSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.BACKSPACE:
+						if ( previousButton.enabled )
+						{
+							prevSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.PAGE_DOWN: 
+						if ( nextButton.enabled )
+						{
+							nextSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.F5:
+						if(presentButton.enabled)
+						{
+							presentButton_clickHandler(null);
+						}
+						break;
+				}
+			  }// if
+			  
+				 
+			  
+				 
+			 
+			
+			}
+					
+			
+			//======================================================================
+			// PREVIOUS - NEXT CLICK HANDLERS
+			//======================================================================
+			
+			protected function nextSlideButtonClickHandler(event:MouseEvent):void
+			{
+				_index++;
+				putASlideImageInTheMainWindow(getSlideBitmap());
+				putASlideImageIntoTheNextThumbnailWindow(getSlideBitmap(1));
+				putASlideImageIntoThePreviousThumbnailWindow(getSlideBitmap(-1));			
+				
+				
+			}
+			
+			protected function prevSlideButtonClickHandler(event:MouseEvent):void
+			{
+				
+				_index--;
+				putASlideImageInTheMainWindow(getSlideBitmap());
+				putASlideImageIntoTheNextThumbnailWindow(getSlideBitmap(1));
+				if ( _index > 0 )
+				{
+					putASlideImageIntoThePreviousThumbnailWindow(getSlideBitmap(-1));
+				}else{
+					previousThumbnailWindow.source = null;
+				}
+			}
+			
+			//======================================================================
+			// SHOW SLIDES - NOTES CLICK HANDLERS
+			//======================================================================
+			
+			protected function showSlideButton_clickHandler(event:MouseEvent):void
+			{
+				notesTextArea.visible = false;
+				mainPreviewWindow.visible = true;
+				showNotesButton.visible = true;
+				showSlideButton.visible = false;
+				putASlideImageInTheMainWindow(getSlideBitmap());	// so that it shows or hides the title slide correctly
+			}
+			
+			protected function showNotesButton_clickHandler(event:MouseEvent):void
+			{
+				mainPreviewWindow.visible = false;
+				notesTextArea.visible = true;	
+				showNotesButton.visible = false;
+				showSlideButton.visible = true;
+				titleSlideWidget.visible = false;
+			}
+			
+			//======================================================================
+			// FULL_SIZE PREVIEW
+			//======================================================================
+			
+			protected function fullSizePreviewButton_clickHandler(event:MouseEvent):void
+			{
+				var slide:Object = _slides[_index];	
+				slide.swfPath = _loadedSlidesMap[slide.slide_id+"swfPath"];
+				slide.flvPath = _loadedSlidesMap[slide.slide_id+"flvPath"];
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.FULL_SIZE_PREVIEW;
+				slidesEvent.bitmap = getSlideBitmap();
+				//slidesEvent.bitmap = getScreenCapture();
+				slidesEvent.slide = slide;
+				if ( titleSlideWidget.visible )
+				{
+					
+					slidesEvent.titleSlideWidget = titleSlideWidget;
+					slidesEvent.titleSlideWidget.inEditMode = false;
+				//	titleSlideWidget.inEditMode = false;
+				}
+				dispatchEvent(slidesEvent);				
+			}
+//			private function getScreenCapture():Bitmap{
+//				var bmpd:BitmapData = new BitmapData(titleSlideWidget.width,titleSlideWidget.height);
+//				bmpd.draw(titleSlideWidget,null,null,null,null,true);	
+//				var bmp:Bitmap = new Bitmap(bmpd);
+//				return bmp;
+//			}
+			
+			//======================================================================
+			// CUSTOMIZE
+			//======================================================================
+			
+			protected function customizeButton_clickHandler(event:MouseEvent):void
+			{    stage.removeEventListener(KeyboardEvent.KEY_UP, keyUpHandlers,false);
+				if ( _presentationObject.is_locked == true)
+				{
+					Alert.show(DatabaseModel.MESSAGE_39,"Attention");
+					return;
+				}
+				if ( dbModel.presentationIsCustomPresentation(_presentationObject) )
+				{
+					navigateToCustomizeView();
+				}
+				else
+				{
+					showNameYourPresentationPopup();
+				}
+			}
+			private function showNameYourPresentationPopup():void{
+				stage.removeEventListener(KeyboardEvent.KEY_UP, keyUpHandlers,int.MAX_VALUE);
+			//	stage.addEventListener("keyboardDispatch",activateKeyboard);
+		
+				var savePopup:PopupAlert = PopUpManager.createPopUp(parent ,PopupAlert,true) as PopupAlert;
+				savePopup.setWidthAndHeight(380,168);				
+				savePopup.titleLabel.text = "Please name your presentation";
+				savePopup.titleLabel.visible = true;
+				savePopup.titleLabelAlertImg.visible = false;
+				savePopup.titleLabel.text = "Please name your presentation";
+				savePopup.titleLabel.includeInLayout = true;
+				savePopup.titleLabel.visible = true;
+				savePopup.setWidthAndHeight(380,168);	
+				savePopup.invalidateDisplayList();
+				savePopup.validateNow();
+				savePopup.inputTI.text = presentationTitle; 
+				savePopup.inputTI.visible = true;
+				savePopup.inputTI.setFocus();
+				//savePopup.yesButton.label = "Done";
+				savePopup.yesButton.visible = false;
+				savePopup.doneButton.visible = true;
+				savePopup.doneButton.includeInLayout = true;
+				savePopup.invalidateDisplayList();
+				savePopup.validateNow();
+				
+				savePopup.noButton.visible = false;
+			
+				var doneHandler:Function = function(o:Object=null):void{
+					var stringTEMP:String;
+					_presentationObject.custom_title = savePopup.inputTI.text;
+					PopUpManager.removePopUp(savePopup);
+					var doImplicitSave:Boolean = true;
+					
+					stringTEMP=trimWhitespace(_presentationObject.custom_title)
+					if(stringTEMP != null && stringTEMP.length>0 )
+					{
+						{
+							navigateToCustomizeView();
+						}
+
+					}
+					else{
+						Alert.show(DatabaseModel.MESSAGE_18,"Attention");
+					}
+					trace("------> _presentationObject.custom_title  "+_presentationObject.custom_title.length+" type");
+					
+				};
+							savePopup.inputTIEnterHandler = doneHandler;
+				//savePopup.yesButton.addEventListener(MouseEvent.CLICK, doneHandler);
+				savePopup.doneButton.addEventListener(MouseEvent.CLICK, doneHandler);
+			//	savePopup.doneButton.addEventListener("keyboardDispatch",activateKeyboard);
+			//	savePopup.cancelButton.addEventListener("keyboardDispatch",activateKeyboard);
+				savePopup.cancelButton.addEventListener(MouseEvent.CLICK, CancelActivateKeyboard);
+				PopUpManager.centerPopUp(savePopup);
+			}
+			private function navigateToCustomizeView():void{
+				stage.removeEventListener(KeyboardEvent.KEY_UP, keyUpHandlers,int.MAX_VALUE);
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.CUSTOMIZE_PAGE;
+				slidesEvent.presentationObject = _presentationObject;				
+				dispatchEvent(slidesEvent);					
+			}
+			
+			
+			private function trimWhitespace($string:String):String {
+				if ($string == null) {
+					return "";
+				}
+				return $string.replace(/^\s+|\s+$/g, "");
+			}
+			//NOTE
+		/* 	private function activateKeyboard(e:Event):void{
+				stage.addEventListener(KeyboardEvent.KEY_UP, keyUpHandlers);
+				trace("Popup done");
+			} */
+			
+			private function CancelActivateKeyboard(e:MouseEvent):void{
+				//stage.addEventListener(KeyboardEvent.KEY_UP, keyUpHandlers);
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.PREVIEW_PAGE;
+				slidesEvent.presentationObject = _presentationObject;				
+				dispatchEvent(slidesEvent);					
+				//stage.addEventListener(KeyboardEvent.KEY_UP, keyUpHandlers);
+				trace("Popup done");
+			}
+			
+			//======================================================================
+			// PRESENT
+			//======================================================================
+			
+			protected function presentButton_clickHandler(event:MouseEvent):void
+			{
+				stage.removeEventListener(KeyboardEvent.KEY_UP, keyUpHandlers,int.MAX_VALUE); /*NOTE remove keyboard events when project is on ; 
+																				only presentView keys are active*/
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.PRESENT_PAGE;
+
+				slidesEvent.slides = _slides;
+				slidesEvent.loadedSlidesMap = _loadedSlidesMap;
+				slidesEvent.presentationObject = _presentationObject;		
+				dispatchEvent(slidesEvent);
+			}
+			
+	
+			
+			//======================================================================
+			// WORKER FUNCTIONS
+			//======================================================================
+			private function pickOutTheTitleSlide():void{
+				var lowestSequenceNumber:int = 10000;
+				for ( var i:uint = 0 ; i < _slides.length; i++)
+				{
+					if ( _slides[i].sequence <= lowestSequenceNumber)
+					{
+						lowestSequenceNumber = _slides[i].sequence;
+						//_titleSlideId = _slides[i].slide_id;
+					  _titleSlideSequence = _slides[i].sequence;
+					}
+				}
+			}
+			
+			//======================================================================
+			// GETTERS AND SETTERS
+			//======================================================================
+			
+			private function getSlideBitmap(indexAdjustment:int = 0):Bitmap{
+				if ( _index + indexAdjustment < 0 || _index + indexAdjustment > _slidesLength - 1)
+				{
+					return null;
+				}
+				var slideId:int = _slides[uint(_index+indexAdjustment)].slide_id as int;
+				
+				var slideBitmap:Bitmap = _loadedSlidesMap[slideId] as Bitmap;
+				
+			//	trace("Tracking Bitmap == >index"+" "+uint(_index+indexAdjustment)+" Seq."+_slides[_index+indexAdjustment]["sequence"]+" CustomSeq." +_slides[_index+indexAdjustment]["customSequence"]);
+				//trace("Tracking SlideID -- > "+slideId);
+				return slideBitmap;
+			}
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}		
+			protected function printBtn_clickHandler(event:MouseEvent):void
+			{
+				if ( dbModel.presentationIsCustomPresentation(_presentationObject))
+				{
+					var slideIdsArray:Array = makeArrayOfWantedSlideIds();
+					useHttpService(slideIdsArray);
+					
+				}else{
+					var printer:PrintPDFsCommand = new PrintPDFsCommand();
+					//NOTE: Test case for missing MASTERS
+					try{
+						printer.openTheMasterPDF(this._presentationObject);
+						
+					}
+					catch (error:Error){
+						Alert.show("Master PDF is not available","Attention");
+					}
+				
+				}
+			}
+			private function makeArrayOfWantedSlideIds():Array{
+				var slideIdsArray:Array = new Array();
+				for ( var i:uint = 0 ; i < _slides.length; i++)
+				{
+					var slideObject:Object = _slides[i];
+					var slideId:uint = slideObject.slide_id;
+					slideIdsArray.push(slideId);
+				}
+				return slideIdsArray;
+			}
+			public function useHttpService(slideIdsArray:Array):void {
+				
+				var urlz:String = LoginPanel.BETA_OR_PROD_URL + "library/presentation_pdf/";
+				urlz += "?slides=";
+				for ( var i:uint = 0 ; i < slideIdsArray.length; i++)
+				{
+					if ( i == (slideIdsArray.length - 1))
+					{
+						urlz += slideIdsArray[i].toString()
+					}
+					else{
+						urlz += slideIdsArray[i].toString() + ",";
+					}
+				}
+				navigateToURL(new URLRequest(urlz));				
+			}
+			private function compileArrayOfSlidesToPrint():Array{
+				var compiledArray:Array = new Array();
+				compiledArray.push(getTheFirstSlideBitmap());
+				for ( var i :uint =1 ; i < _slides.length; i++)
+				{
+					var bitmap:Bitmap = _loadedSlidesMap[_slides[i].slide_id] as Bitmap;
+					compiledArray.push(bitmap);
+				}
+				return compiledArray;
+			}
+			private function compileArrayOfSlideNotes():Array{
+				var compiledArray:Array = new Array();
+				for ( var i :uint =0 ; i < _slides.length; i++)
+				{
+					var notes:String = dbModel.getSlideNotesFromSlideId(_slides[i].slide_id);
+					//notes = dbModel.stripHTMLFormatting(notes);
+					compiledArray.push(notes);
+				}
+				return compiledArray;
+			}
+			private function getTheFirstSlideBitmap():Bitmap{
+				if ( dbModel.presentationIsCustomPresentation(_presentationObject))
+				{					
+					var results:Array = DatabaseModel.getInstance().getWhere(DatabaseModel.getInstance().customSQLConnection,"title_slide","custom_presentation_id",_presentationObject.custom_presentation_id as int);
+					if ( results && results.length > 0 )
+					{
+						var titleSlideBitmapForPrint:Bitmap = getTitleSlideBitmapForPrint();
+						return titleSlideBitmapForPrint;						
+					}					
+				}
+				return _loadedSlidesMap[_slides[0].slide_id] as Bitmap;				
+			}
+			private function getTitleSlideBitmapForPrint():Bitmap{
+				var bitmap:Bitmap = _loadedSlidesMap[_slides[0].slide_id] as Bitmap;
+				titleSlideWidget.visible = true;
+				titleSlideWidget.putTheSlideAsBackDrop(bitmap, _presentationObject.custom_presentation_id);
+				var pic:Bitmap = titleSlideWidget.getTitleSlideBitmap();
+				titleSlideWidget.visible = false;
+				return pic;
+			}
+			
+		]]>
+	</fx:Script>
+	
+	<!-- =========  BACKGROUNDS  =========== -->
+	
+	
+	<!--s:Image id="bottomBarBackground"
+			 source="@Embed('assets/images/slidePopup2BG.png')"
+			 horizontalCenter="0"
+			 bottom="25"
+			 /-->
+	
+	<!-- optionalBackgroun.png = 302x46 needs to be 724x46-->
+	<s:Image id="greyTitleBar"
+			 source= "@Embed('assets/images/optionalBackground.png')"
+			 scaleX="2.3974"
+			 scaleY="1.02"
+			 y = "-1"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	<s:Label id="screenTitle"
+			 text="{presentationTitle}"
+			 width="100%"
+			 height="45"
+			 y="20"
+			 horizontalCenter="0"
+			 fontSize="18"
+			 color = "0x777777"
+			 textAlign="center"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+			 
+	
+	<s:Image id="leftButtonBackground"
+			 source="@Embed('assets/images/left_graphic.png')"
+			 left = "5"
+			 bottom = "5"
+			 />
+	
+	<s:Image id="rightButtonBackground"
+			 source="@Embed('assets/images/right_graphic.png')"
+			 right="5"
+			 bottom = "5"
+			 />
+	
+	
+	<!-- =========  MAIN WINDOWS  =========== -->
+	
+	<s:Image id="mainPreviewWindow"
+			 x="10" y="150"	
+			 width="700" height="500"
+			 fillMode="scale"
+			 scaleMode="stretch"
+			 smooth="true"
+			 smoothingQuality="high"
+			 />
+	
+	<!-- =========  TITLE SLIDE WIDGET  =========== -->
+	
+	<view:TitleSlideWidget id="titleSlideWidget" 
+						   visible="false"
+						   />
+		
+	
+	<!-- =========  NOTES  =========== -->
+	
+	<mx:HTML id="notesTextArea"
+	x="10" y="150"
+	width="700" height="500"
+	
+	visible="false"
+	/>
+
+	
+	<!-- =========  THUMBNAIL WINDOWS =========== -->
+	
+	
+	<s:Image id="previousThumbnailWindow"			 
+			 bottom = "8"
+			 left = "115"
+			 fillMode="scale"
+			 scaleMode="stretch"
+			 width="133" height="100"
+			 />
+	
+	<s:Image id="nextThumbnailWindow"
+			 bottom = "8"
+			 right = "115"
+			 fillMode="scale"
+			 scaleMode="stretch"
+			 width="133" height="100"
+			 />
+	
+	
+	
+	
+	
+	
+	<!--=================  NEXT - PREVIOUS BUTTONS  ===================== -->
+	
+	<s:Button id="previousButton"
+			 skinClass="com.desktop.otsuka.slidelibrary.view.skins.PreviousButtonSkin"
+			 bottom = "12"
+			 x = "{leftButtonBackground.x + 1}"
+			 click="prevSlideButtonClickHandler(event)"
+			 enabled = "{_index &gt; 0}"
+			 />
+	
+	<s:Button id="nextButton"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.NextButtonSkin"
+			  x="{rightButtonBackground.x + rightButtonBackground.width - nextButton.width - 1}"
+			  bottom = "12"
+			  click="nextSlideButtonClickHandler(event)"
+			  enabled="{ _index &lt; _slidesLength - 1}"
+			  />
+	
+	<!--=================  BUTTONS  ===================== -->
+	
+	
+	<s:HGroup id="mainButtonsHGroup"
+			  y="75"
+			  x = "5"
+			  >
+		
+		<s:Button id="customizeButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.CustomizeButtonSkin"
+				  click="customizeButton_clickHandler(event)"
+				  />
+		
+		<!--s:Spacer width="50" /-->
+		
+		<s:Button id="fullSizePreviewButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.FullSizePreviewButtonSkin"
+				  click="fullSizePreviewButton_clickHandler(event)"
+				  />
+		<s:Button id="showNotesButton"			  
+				skinClass="com.desktop.otsuka.slidelibrary.view.skins.ShowNotesButtonSkin"
+				click="showNotesButton_clickHandler(event)"
+			  	includeInLayout="{showNotesButton.visible}"
+			  	/>
+	
+		<s:Button id="showSlideButton"
+			  	skinClass="com.desktop.otsuka.slidelibrary.view.skins.ShowSlideButtonSkin"
+			  	click="showSlideButton_clickHandler(event)"
+			  	includeInLayout="{showSlideButton.visible}"
+				visible="false"
+			  	/>
+		<s:Button id="printButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.PrintButtonSkinWithIcon"
+				  click="printBtn_clickHandler(event);"
+				  />
+		
+		<s:Button id="presentButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.PresentButtonSkin"
+				  click="presentButton_clickHandler(event)"
+				  />
+	</s:HGroup>
+	
+	<view:PrinterView id="printerView" width="100%" height="100%"
+					  visible="false"
+					  />
+	
+	<mx:Canvas id="printerCover" width="100%" height="100%"
+			   backgroundAlpha=".99"
+			   backgroundColor="0xffffff"
+			   visible="{printerView.visible}"
+			   >
+		<s:Label horizontalCenter="0" verticalCenter="0"
+				 text="Preparing Print Job..."
+				 color="0x000000"
+				 />
+	</mx:Canvas>
+			 
+	
+</s:Group>

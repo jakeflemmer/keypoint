@@ -1,0 +1,1042 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 xmlns:view="com.desktop.otsuka.slidelibrary.view.*"
+		 >
+	
+	<!-- grey background -->
+	<s:Rect width="1024" height="722" y = "45">
+		<s:fill>
+			<s:SolidColor color="0xdddddd" />
+		</s:fill>
+	</s:Rect>
+	
+	<!-- ======================================================================================
+	PRESENT VIEW
+	======================================================================================== -->
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.PresentCommand;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesUtilities;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import flash.utils.setTimeout;
+			
+			import mx.controls.SWFLoader;
+			import mx.core.UIComponent;
+			
+			public var seekTime :int = 0;
+			[Bindable]
+			public var playBtnEnabled:Boolean = true;
+			[Bindable]
+			public var pauseBtnEnabled:Boolean = false;
+			[Bindable]
+			public var nextBtnEnabled:Boolean = true;
+			[Bindable]
+			public var backBtnEnabled:Boolean = false;
+			
+			private const VIEW_NOTES:String = "VIEW NOTES";
+			private const VIEW_SLIDE:String = "VIEW SLIDE";
+			private var _stopProjector:PresentCommand = new PresentCommand ();
+			
+			private var _slides:Array; // slide objects from JSON sorted into sequence
+			[Bindable]
+			private var _slidesLength:uint;
+			[Bindable]
+			private var _index:uint = 0;
+			private var _loadedSlidesMap:Object;
+			
+			private var _presentationObject:Object;
+			
+			[Bindable]
+			private var presentationTitle:String;
+			
+			private var _titleSlideId:uint;
+			//private var _titleSlideSequence:uint;
+			
+			private var _screen:Screen;
+			private var _screenBounds:Rectangle;
+			
+			private var projectorWindow1:ProjectorWindowV3;
+			private var projectorWindow2:ProjectorWindowV3;
+			
+			private var swfsUnloadedCounter:uint = 0;
+			
+			private var slideIdBeingLoaded:uint;
+			
+			private var lastSlideWasAVideo:Boolean = false;
+			
+			private var dimToggle:Boolean = false;
+			
+			private var stringPresentTest:PreviewView;
+			
+			private var duplicateImage:Object; //image for second projector window
+			
+			//=========================================================
+			
+			//==============================================================================
+			// INIT
+			//==============================================================================
+			
+			public function init($slides:Array,$loadedSlidesMap:Object, $presentationObject:Object):void{
+				
+				var numberOfScreen:Array = Screen.screens;
+				dbModel._activateKeys=true;
+				
+				_index = 0;
+				_slides = theWantedSlidesOnly($slides);
+				sortTheSlides();
+				_loadedSlidesMap = $loadedSlidesMap;
+				_slidesLength = _slides.length;
+				_presentationObject = $presentationObject;
+				lastSlideWasAVideo = false;
+				
+			//	startProjectorWindow(keyUpHandlers);
+				
+				projectorWindow1 = startProjectorWindow(keyUpHandlers,0,"mr number one !");
+				if(numberOfScreen.length > 1)
+				{
+					projectorWindow2 = startProjectorWindow(keyUpHandlers,1,"ms number two !");
+				}
+				trace("V3+++++++ Screens length  "+numberOfScreen.length);
+				
+				//(this.parentApplication as Slides).nativeWindow.visible = false; // removes controls window
+				
+				stage.addEventListener(KeyboardEvent.KEY_UP, keyUpHandlers);
+				
+					
+				
+				
+				pickOutTheTitleSlide();
+				
+				putASlideImageInTheMainWindow(getSlideBitmap());
+				
+				duplicateImage = getSlideBitmap() as BitmapData;
+				
+				if ( dbModel.presentationIsCustomPresentation($presentationObject))
+				{
+					this.presentationTitle = $presentationObject.custom_title;
+				}
+				else
+				{
+					this.presentationTitle = $presentationObject.presentation_name;
+				}
+				
+			}
+			private function sortTheSlides():void{
+				var testSlide:Object = _slides[0];
+				if ( testSlide.customSequence > 0 )
+				{
+					_slides.sortOn("customSequence",Array.NUMERIC);
+					
+				
+					
+				/* 	for(var i=0; i<_slides.length; i++)
+					{
+						for(var j=0; j<_slides.length-1;j++)
+						{
+							if(_slides[j]["customSequence"] == 0)
+							{
+								if(_slides[j]["sequence"] > _slides[j+1]["sequence"])
+								{
+									var temp:Object=_slides[j];
+									_slides[j]=_slides[j+1];
+									_slides[j+1] = temp;
+									
+								}//swap
+							}
+						}
+						
+					} */// end bubble sort or any remaining new Sequence slides
+					
+				}else{
+					_slides.sortOn("sequence",Array.NUMERIC);
+				}
+			}
+			private function theWantedSlidesOnly(allSlides:Array):Array{
+				var onlyWantedSlides:Array = new Array();
+				for ( var i:uint = 0 ; i < allSlides.length; i++ )
+				{
+					var slide:Object = allSlides[i];
+					if ( slide.unwanted == false)
+					{
+						onlyWantedSlides.push(slide);
+					}					
+				}
+				return onlyWantedSlides;				
+			}
+			
+			//==============================================================================
+			// DISPLAY THE SLIDES
+			//==============================================================================
+			
+			private function putASlideImageInTheMainWindow(slideBitmap:Bitmap):void{
+				
+				if ( !slideBitmap) return;
+				
+				// TITLE SLIDE
+				var slideId:int;
+				if ( dbModel.presentationIsCustomPresentation(_presentationObject) )
+				{
+					slideId = _slides[_index].sec_slide_id_plus_cust_pres_id as int;
+				}else{
+					slideId = _slides[_index].section_slide_id as int;	
+				}
+				
+				if ( slideId == _titleSlideId )
+				//if(slideId == _titleSlideSequence)
+				{
+					if ( dbModel.presentationIsCustomPresentation(_presentationObject) )
+					{
+							initTheTitleWidget(mainPreviewWindow,false);	
+							titleSlideWidget.visible =false;						
+					}
+				}else{
+					titleSlideWidget.visible = false;
+					titleSlideWidgetForPresent.visible = false;
+					titleSlideWidgetForPresent2.visible = false;
+				}
+				
+				sendProjectorSwfImageOrVideo();
+			}
+			private function sendProjectorSwfImageOrVideo():void{
+				
+				var slideObject:Object = _slides[_index];
+				if ( SlidesUtilities.slideIsVideo(slideObject))
+				{
+					projectorWindow1.displayVideo(getSlideFlvLocalPath(slideObject));
+					if(projectorWindow2 != null){
+						projectorWindow2.displayVideo(getSlideFlvLocalPath(slideObject));
+						projectorWindow2.videoPlayer.volume=0; // make sure that the second video volume is off
+					}
+					playBtnEnabled = false;
+					pauseBtnEnabled = true;
+					backBtnEnabled = false;
+					nextBtnEnabled = true;					
+				}
+				else if ( SlidesUtilities.slideIsAnimatingSwf(slideObject) )
+				{					
+					putSlideSwfInProjectorWindow();
+				}
+				else
+				{
+					projectorWindow1.displayImage(getSlideBitmap());
+					if(projectorWindow2 !=null)
+					{
+						projectorWindow2.displayImage(getSlideBitmap());
+					}
+				}				
+			}
+			
+			private function getSlideFlvLocalPath(slideObject:Object):String{
+				var localPath:String = _loadedSlidesMap[slideObject.slide_id+"flv"] as String; 
+				return localPath;
+			}
+			
+			private function initTheTitleWidget(uic:UIComponent,takeParent:Boolean):void{ 
+				
+				titleSlideWidget.inEditMode = false;
+				titleSlideWidget.makeTitleSlideWidgetMatchDimensionsOfUIC(uic,takeParent,_presentationObject.presentation_id as int,_presentationObject.custom_presentation_id as int);
+				titleSlideWidget.visible = true;
+				titleSlideWidget.loadTheTileSlideFromTheDatabase();
+				titleSlideWidget.addEventListener("CLOSE_ME", function (e:Event):void{
+					titleSlideWidget.visible = false;
+				});
+				
+				titleSlideWidgetForPresent.inEditMode = false;
+				titleSlideWidgetForPresent.makeTitleSlideWidgetMatchDimensionsOfUIC(uic,takeParent,_presentationObject.presentation_id as int,_presentationObject.custom_presentation_id as int);
+				titleSlideWidgetForPresent.visible = true;
+				titleSlideWidgetForPresent.loadTheTileSlideFromTheDatabase();
+				titleSlideWidgetForPresent.addEventListener("CLOSE_ME", function (e:Event):void{
+					titleSlideWidgetForPresent.visible = false;
+				});
+				
+				titleSlideWidgetForPresent2.inEditMode = false;
+				titleSlideWidgetForPresent2.makeTitleSlideWidgetMatchDimensionsOfUIC(uic,takeParent,_presentationObject.presentation_id as int,_presentationObject.custom_presentation_id as int);
+				titleSlideWidgetForPresent2.visible = true;
+				titleSlideWidgetForPresent2.loadTheTileSlideFromTheDatabase();
+				titleSlideWidgetForPresent2.addEventListener("CLOSE_ME", function (e:Event):void{
+					titleSlideWidgetForPresent2.visible = false;
+				});
+				
+				projectorWindow1.displayTitleSlideWidget(titleSlideWidgetForPresent);
+				if(projectorWindow2 != null)
+				{
+					projectorWindow2.displayTitleSlideWidget(titleSlideWidgetForPresent2);
+				}
+			}
+			
+			//======================================================================
+			// PREVIOUS - NEXT CLICK HANDLERS
+			//======================================================================
+			
+			protected function nextSlideButtonClickHandler(event:MouseEvent):void
+			{	
+				if ( _index == _slidesLength - 1 ) return;
+				var oldIndex:uint = _index;
+				var oldSlide:Object = _slides[oldIndex];
+				if ( SlidesUtilities.slideIsVideo(oldSlide))
+				{
+					lastSlideWasAVideo = true;
+				}else{
+					lastSlideWasAVideo = false;
+				}
+				_index++;	
+				putASlideImageInTheMainWindow(getSlideBitmap());
+				dimToggle = false;
+				projectorWindow1.dimOverlay(dimToggle);
+				if(projectorWindow2 != null){
+					projectorWindow2.dimOverlay(dimToggle);
+				}
+				
+				//stopVideo();
+				
+			}
+			
+			protected function prevSlideButtonClickHandler(event:MouseEvent):void
+			{
+				if ( _index == 0 ) return;
+				
+				var oldIndex:uint = _index;
+				var oldSlide:Object = _slides[oldIndex];
+				if ( SlidesUtilities.slideIsVideo(oldSlide))
+				{
+					lastSlideWasAVideo = true;
+				}else{
+					lastSlideWasAVideo = false;
+				}
+				_index--;				
+				putASlideImageInTheMainWindow(getSlideBitmap());
+				dimToggle = false;
+				projectorWindow1.dimOverlay(dimToggle);
+				if(projectorWindow2 != null){
+					projectorWindow2.dimOverlay(dimToggle);
+				}
+			}
+			private function unloadTheSwfAfterMovingOffOfIt(oldIndex:uint):void{
+				var slideObject:Object = _slides[oldIndex];
+				if ( SlidesUtilities.slideIsVideo(slideObject))
+				{
+					//we don't have to reload
+				}
+				else if ( SlidesUtilities.slideIsAnimatingSwf(slideObject) )
+				{
+					unloadThisSwf(slideObject);				
+				}
+				else
+				{
+					//we don't have to reload
+				}
+			}			
+			private function unloadThisSwf(slideObject:Object):void{
+				
+				var slideId:uint = slideObject.slide_id;
+				slideIdBeingLoaded = slideId;
+				var alreadyLoadedLoader:SWFLoader = _loadedSlidesMap[slideId+"swf"];
+				if ( ! alreadyLoadedLoader ) return;
+				alreadyLoadedLoader.unloadAndStop();
+				alreadyLoadedLoader = null;
+			}
+			
+			//======================================================================
+			// END PRESENTATION
+			//======================================================================
+			
+			protected function endPresentButton_clickHandler(event:MouseEvent):void
+			{
+				if ( titleSlideWidget ) titleSlideWidget.visible = false;
+				if (titleSlideWidgetForPresent ) titleSlideWidgetForPresent.visible = false;
+				if ( titleSlideWidgetForPresent2 ) titleSlideWidgetForPresent2.visible = false;
+				
+				setTimeout(function ():void{
+				stage.removeEventListener(KeyboardEvent.KEY_UP, keyUpHandlers); //NOTE:Prevent Specific Keys for the Projector interferring with PreviewView
+				projectorWindow1.videoPlayer.stop();
+				projectorWindow1.close();
+				projectorWindow1.videoPlayer.volume=0;
+				
+				if(projectorWindow2 != null)
+				{
+					projectorWindow2.close();
+					projectorWindow2.videoPlayer.stop();
+					projectorWindow2.videoPlayer.volume=0;
+				}
+				stopVideo();
+			//	System.pauseForGCIfCollectionImminent(1);  //NOTE:Be sure to Clear out the memory when exiting the Projector
+				// go back to preview view
+			//	_stopProjector.stopProjectorWindow();
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.PREVIEW_PAGE;
+				slidesEvent.slides = _slides;
+				slidesEvent.loadedSlidesMap = _loadedSlidesMap;
+				slidesEvent.presentationObject = _presentationObject;	
+				
+				dispatchEvent(slidesEvent);
+				},100);
+				
+			//	(this.parentApplication as Slides).nativeWindow.visible = true;
+				
+				
+			}
+			
+			//======================================================================
+			// WORKER FUNCTIONS
+			//======================================================================
+			private function pickOutTheTitleSlide():void{
+				var lowestSequenceNumber:int = 10000;
+				var i:uint;
+				
+				if ( dbModel.presentationIsCustomPresentation(_presentationObject) )
+				{
+					for ( i = 0 ; i < _slides.length; i++)
+					{
+					//	if ( _slides[i].sequence <= lowestSequenceNumber)
+						if ( _slides[i].sequence <= lowestSequenceNumber)// && SlidesUtilities.slideIsOptionalSlide(_slides[i]) !=true)
+						{
+							lowestSequenceNumber = _slides[i].sequence;
+							_titleSlideId = _slides[i].sec_slide_id_plus_cust_pres_id;
+						//	_titleSlideSequence = _slides[i].sequence;
+						}
+					}
+				}else{
+					for ( i = 0 ; i < _slides.length; i++)
+					{
+					if ( _slides[i].sequence <= lowestSequenceNumber)//&& SlidesUtilities.slideIsOptionalSlide(_slides[i]) !=true)
+						{
+							lowestSequenceNumber = _slides[i].sequence;
+							_titleSlideId = _slides[i].section_slide_id;
+						//	_titleSlideSequence = _slides[i].sequence;
+							
+						}
+					}	
+				}
+			}
+			
+			//======================================================================
+			// GETTERS AND SETTERS
+			//======================================================================
+			
+			private function getSlideBitmap(indexAdjustment:int = 0):Bitmap{
+				if ( _index + indexAdjustment < 0 || _index + indexAdjustment > _slidesLength - 1)
+				{
+					return null;
+				}
+				var slideId:int = _slides[_index+indexAdjustment].slide_id as int;
+				var slideBitmap:Bitmap = _loadedSlidesMap[slideId] as Bitmap;
+				return slideBitmap;
+			}
+			private function getSlideSwf(indexAdjustment:int = 0):Object{
+				if ( _index + indexAdjustment < 0 || _index + indexAdjustment > _slidesLength - 1)
+				{
+					return null;
+				}
+				var slideId:int = _slides[_index+indexAdjustment].slide_id as int;
+				var slideSwfLoader:Object = _loadedSlidesMap[slideId+"swf"];
+				if ( ! slideSwfLoader )
+				{
+					// we must be reloading this swf
+					return null;
+				}
+				var slideSwf:Object = slideSwfLoader.content;
+				return slideSwf;
+			}
+			private function putSlideSwfInProjectorWindow():void{
+				
+				var slideId:int = _slides[_index].slide_id as int;
+				var filePath:String = _loadedSlidesMap[slideId+"swfPath"];
+				
+				var loader:Loader = new Loader();
+				var appDomain:ApplicationDomain = new ApplicationDomain(ApplicationDomain.currentDomain);
+				var context:LoaderContext = new LoaderContext(false, appDomain);
+				loader.contentLoaderInfo.addEventListener(Event.INIT, newFileLoaderHandler);
+				
+				loader.load(new URLRequest(filePath), context);
+				
+				if ( projectorWindow2 )
+				{
+					var loader2:Loader = new Loader();
+					var appDomain2:ApplicationDomain = new ApplicationDomain(ApplicationDomain.currentDomain);
+					var context2:LoaderContext = new LoaderContext(false, appDomain2);
+					loader2.contentLoaderInfo.addEventListener(Event.INIT, newFileLoaderHandler2);
+					
+					loader2.load(new URLRequest(filePath), context2);
+				}
+				//loader.addEventListener(Event.COMPLETE, newFileLoaderHandler);
+				//loader.load( filePath );
+				rewindSlideBuild(); //rewind the build
+			}
+			
+			private function newFileLoaderHandler(e:Event):void{
+				
+				//(event.target).removeEventListener(Event.COMPLETE, newFileLoaderHandler); 
+				
+				var contentInfo:LoaderInfo = LoaderInfo(e.target);
+				var content:DisplayObject = contentInfo.content;
+				
+				projectorWindow1.displayAnimatingSwf(content);
+			}
+			private function newFileLoaderHandler2(e:Event):void{
+				
+				//(event.target).removeEventListener(Event.COMPLETE, newFileLoaderHandler); 
+				
+				var contentInfo:LoaderInfo = LoaderInfo(e.target);
+				var content:DisplayObject = contentInfo.content;
+				
+				projectorWindow2.displayAnimatingSwf(content);
+			}
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}		
+			// =========================================================================
+			// START PROJECTOR WINDOW    =============================================
+			// =========================================================================
+			
+			public function startProjectorWindow(keyPressHandlers:Function, _screenIndex:uint,projectorName:String):ProjectorWindowV3
+			{
+				
+				
+				var numberOfScreen:Array = Screen.screens;
+				trace("single monitor"+numberOfScreen.length);
+			
+				_screen= Screen.screens[_screenIndex];
+				_screenBounds = _screen.bounds;
+				
+				var projectorWindow:ProjectorWindowV3 = new ProjectorWindowV3();
+				projectorWindow.systemChrome =  NativeWindowSystemChrome.NONE; //STANDARD
+				
+				projectorWindow.open();
+				
+				projectorWindow.nativeWindow.x = _screenBounds.x;
+				projectorWindow.nativeWindow.y = _screenBounds.y;
+				projectorWindow.nativeWindow.width = _screenBounds.width;
+				projectorWindow.nativeWindow.height = _screenBounds.height;
+				
+				projectorWindow.imageWindow.width =  _screenBounds.width;
+				projectorWindow.imageWindow.height =  _screenBounds.height;
+				projectorWindow.animatingSwfGroup.width =  _screenBounds.width;
+				projectorWindow.animatingSwfGroup.height =  _screenBounds.height;
+				projectorWindow.videoPlayer.width =  _screenBounds.width;
+				projectorWindow.videoPlayer.height =  _screenBounds.height;
+				projectorWindow.alwaysInFront = true;
+				
+				projectorWindow.clickCatcherCanvas.width = _screenBounds.width;
+				projectorWindow.clickCatcherCanvas.height = _screenBounds.height;
+				
+				
+				projectorWindow.stage.scaleMode = StageScaleMode.NO_SCALE;
+				projectorWindow.stage.align = StageAlign.TOP_LEFT;
+				projectorWindow.stage.displayState = StageDisplayState.FULL_SCREEN_INTERACTIVE; 
+				
+				projectorWindow.stage.addEventListener(KeyboardEvent.KEY_UP, keyPressHandlers);
+				
+				projectorWindow.init();
+				//projectorWindow.addEventListener(SlidesEvent.UPDATE_PREVIEWING_SCREEN,onUpdatePreviewingScreenWithCapturedProjectingScreen);
+				
+				projectorWindow.createDimOverlay();
+				projectorWindow.name = "Hi, im projector window " + projectorName;
+				//return true;
+				
+				projectorWindow.addEventListener(SlidesEvent.ON_ANIMATING_SWF_CLICK,advanceSlideBuild);
+				return projectorWindow;
+				
+			}
+			
+			// =========================================================================
+			// VIDEO PLAYER CONTROLS =============================================
+			// =========================================================================
+			public function stopVideo():void{
+				playBtnEnabled = true;
+				pauseBtnEnabled = false;
+				//videoPlayer.pause();
+				projectorWindow1.videoPlayer.pause();
+			}
+			public function playVideo():void{
+				playBtnEnabled = false;
+				pauseBtnEnabled = true;
+				nextBtnEnabled = true;
+				backBtnEnabled = true;
+				//videoPlayer.play();
+				if(projectorWindow1.visible){
+					projectorWindow1.videoPlayer.play();
+				}
+			}
+			public function seekForward():void{
+				if((seekTime + 20) >= projectorWindow1.videoPlayer.duration){
+					nextBtnEnabled = false;
+				}else{
+					seekTime = seekTime + 20;
+					//videoPlayer.seek(seekTime);
+					projectorWindow1.videoPlayer.seek(seekTime);
+				}
+				backBtnEnabled = true;
+			}
+			public function seekBackward():void{
+				if(!((seekTime - 20) <= 0)){
+					seekTime = seekTime - 20;
+					//videoPlayer.seek(seekTime);
+					projectorWindow1.videoPlayer.seek(seekTime);
+				}else{
+					//videoPlayer.seek(0);
+					projectorWindow1.videoPlayer.seek(0);
+					backBtnEnabled = false;
+				}
+				nextBtnEnabled = true;
+			}
+			
+			//======================================================================
+			// KEYBOARD HANDLERS
+			//======================================================================
+			
+			private function setSpacebar(e:KeyboardEvent):void{
+				trace(e.keyCode);
+				if(e.keyCode == 32) //spacebar
+				{
+					e.preventDefault();
+					e.stopImmediatePropagation();
+					
+				}
+				
+			}
+			
+			
+		
+			protected function keyUpHandlers(event:KeyboardEvent):void
+			{
+			  if(dbModel._activateKeys){
+				switch( event.keyCode ) 
+				{ 
+					
+					case Keyboard.N:
+						if ( nextButton.enabled )
+						{
+							nextSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.SPACE:
+						if ( nextButton.enabled )
+						{
+							nextSlideButtonClickHandler(null);	
+						}			
+						break;
+					case Keyboard.ENTER:
+						if ( nextButton.enabled )
+						{
+							nextSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.DOWN:
+						if ( nextButton.enabled )
+						{
+							nextSlideButtonClickHandler(null);	
+						}							
+						break;
+					case Keyboard.UP:
+						if ( previousButton.enabled )
+						{
+							prevSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.LEFT :
+						if ( previousButton.enabled )
+						{
+							prevSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.PAGE_UP:
+						if ( previousButton.enabled )
+						{
+							prevSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.DELETE:
+						if ( previousButton.enabled )
+						{
+							prevSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.BACKSPACE:
+						if ( previousButton.enabled )
+						{
+							prevSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.P:
+						if ( previousButton.enabled )
+						{
+							prevSlideButtonClickHandler(null);	
+						}						
+						break;
+					
+					case Keyboard.RIGHT :
+						if ( nextButton.enabled )
+						{
+							nextSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.PAGE_DOWN:
+						if ( nextButton.enabled )
+						{
+							nextSlideButtonClickHandler(null);	
+						}						
+						break;
+					case Keyboard.ESCAPE :
+						dimToggle = false;
+						
+						if(projectorWindow1.visible ){
+							projectorWindow1.dimOverlay(dimToggle);
+							projectorWindow1.removeDimOverlay();
+							if(projectorWindow2 !=null){
+								projectorWindow2.dimOverlay(dimToggle);
+								projectorWindow2.removeDimOverlay();
+							}
+						}
+						endPresentButton_clickHandler(null);
+						break;
+					case Keyboard.Q :
+						advanceSlideBuild();
+						break;
+					case Keyboard.W :
+						rewindSlideBuild();
+						break;
+					
+					
+				}//end case
+			  }//end if to activate keyboard
+				
+				
+				/*======================================================
+				DIM Window 
+				=======================================================*/
+				if(projectorWindow1.visible == true){
+					if(event.keyCode == Keyboard.B || event.keyCode == Keyboard.PERIOD){
+						
+						dimToggle = !dimToggle;
+						
+						projectorWindow1.dimOverlay(dimToggle);
+						if(projectorWindow2!= null){
+							projectorWindow2.dimOverlay(dimToggle);
+						}
+						if(projectorWindow1.videoPlayer.visible)
+						{
+							if(dimToggle){
+								
+								
+								stopVideo();
+								if(projectorWindow2!= null){
+									projectorWindow2.videoPlayer.pause();
+									projectorWindow2.videoPlayer.volume=0;
+								}
+								
+							}
+							else{
+								
+							
+								playVideo();
+							
+								projectorWindow1.videoPlayer.volume=120;
+								if(projectorWindow2!= null){
+									projectorWindow2.videoPlayer.play();
+									projectorWindow2.videoPlayer.volume=0;
+								}
+								
+							}
+						}//end video playerDisplay
+					}// test only if the projector window is invisible
+					
+				}// end of if case statement for the Dim control (BlackOut)
+				
+				/*======================================================
+				Advance to next slide
+				=======================================================*/
+				/* 	
+				if(event.keyCode == Keyboard.N || event.keyCode == Keyboard.PAGE_DOWN || event.keyCode == Keyboard.DOWN
+				|| event.keyCode == Keyboard.RIGHT || event.keyCode == Keyboard.ENTER 
+				|| event.keyCode == Keyboard.SPACE)
+				{
+				if(projectorWindow.visible == true){
+				if ( previousButton.enabled )
+				{
+				prevSlideButtonClickHandler(null);	
+				}				 */
+				//	}// test only if the projector window is invisible
+				
+				// }// end of if case statement for Advance to next slide
+				
+				
+				/*======================================================
+				Advance to Previous slide
+				=======================================================*/
+				
+				//	if(event.keyCode == Keyboard.P || event.keyCode == Keyboard.PAGE_UP || event.keyCode == Keyboard.UP
+				/* 		|| event.keyCode == Keyboard.LEFT || event.keyCode == Keyboard.BACKSPACE 
+				|| event.keyCode == Keyboard.DELETE)
+				{
+				if(projectorWindow.visible == true){
+				if ( nextButton.enabled )
+				{
+				nextSlideButtonClickHandler(null);	
+				}				 */
+				//		}// test only if the projector window is invisible
+				
+				//	}// end of if case statement for Advance to next slide
+				
+				
+				
+			}//end keyuphandlers for PresentView	
+			
+			private function advanceSlideBuild(o:Object = null):void{
+				if ( ! projectorWindow1 ) return;
+				if ( ! projectorWindow1.animatingSwf ) return;
+				if ( ! projectorWindow1.animatingSwfGroup.visible ) return;
+				
+				
+				var mc:MovieClip = projectorWindow1.animatingSwf;
+				
+				if(projectorWindow2 && projectorWindow2.animatingSwf && projectorWindow2.animatingSwfGroup.visible)
+				{
+					var mc2:MovieClip = projectorWindow2.animatingSwf;
+					var player2:Object = mc2.player;
+					var view2:Object = player2.view;
+					var playbackController2:Object = view2.playbackController;
+					playbackController2.gotoNextStep();
+				}
+				
+				var player:Object = mc.player;
+				var view:Object = player.view;
+				var playbackController:Object = view.playbackController;
+				
+				playbackController.gotoNextStep();
+				
+			}
+			private function rewindSlideBuild():void{
+				if ( ! projectorWindow1 ) return;
+				if ( ! projectorWindow1.animatingSwf ) return;
+				if ( ! projectorWindow1.animatingSwfGroup.visible ) return;
+				
+				if(projectorWindow2 && projectorWindow2.animatingSwf && projectorWindow2.animatingSwfGroup.visible)
+				{
+					var mc2:MovieClip = projectorWindow2.animatingSwf;
+					var player2:Object = mc2.player;
+					var view2:Object = player2.view;
+					var playbackController2:Object = view2.playbackController;
+					
+					setTimeout(function():void{
+					playbackController2.gotoPreviousStep();
+					},200);
+					
+				}
+				var mc:MovieClip = projectorWindow1.animatingSwf;
+				
+				var player:Object = mc.player;
+				var view:Object = player.view;
+				var playbackController:Object = view.playbackController;
+				
+				setTimeout(function():void{
+				playbackController.gotoPreviousStep();
+				},200);
+			}
+			
+			
+			
+		]]>
+	</fx:Script>
+	
+	<!-- =========  BACKGROUNDS  =========== -->
+	
+	
+	
+	<!-- top blue border -->
+	<s:Image 
+		source= "@Embed('assets/images/top_blue_border.png')"
+		y = "-1"
+		mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+		/>
+	
+	<!--s:Label id="slideCounterTitle"
+			 text="{'Slide ' + (_index + 1) + ' / ' + _slidesLength}"
+			 width="100%"
+			 height="45"
+			 y="20"
+			 horizontalCenter="0"
+			 fontSize="18"
+			 color = "0xffffff"
+			 textAlign="center"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	
+	<s:Image id="leftButtonBackground"
+			 source="@Embed('assets/images/left_graphic.png')"
+			 x = "117"
+			 y="645"
+			 />
+	
+	<s:Image id="rightButtonBackground"
+			 source="@Embed('assets/images/right_graphic.png')"
+			 x = "663"
+			 y="645"
+			 /-->
+	
+	
+	<!-- ==================================== -->
+	<!-- =========  MAIN WINDOW  ============ -->
+	<!-- ==================================== -->
+	<!--s:Label id="doubleClickLabel" 
+	width="700" textAlign="center"
+	x = "162" y="80"
+	fontSize="17"
+	color="0x8B008B"
+	text="Note : Double Click To Advance Slide Build / Animation"			 
+	/-->
+	
+	<!--s:Group id="screenCatcherGroup" x="162" y="100" -->
+		
+		<s:Image id="mainPreviewWindow"			
+				 width="700" height="500"
+				 fillMode="scale"
+				 scaleMode="stretch"
+				 smoothingQuality="high"
+				 smooth="true"
+				 />
+		
+		
+		
+		<!-- =========  TITLE SLIDE WIDGET  =========== -->
+		
+		<view:TitleSlideWidget id="titleSlideWidget" 
+							   visible="false"
+							   />
+		
+		<view:TitleSlideWidget id="titleSlideWidgetForPresent" 
+							   visible="false"
+							   includeInLayout="false"
+							   />
+	
+	<view:TitleSlideWidget id="titleSlideWidgetForPresent2" 
+						   visible="false"
+						   includeInLayout="false"
+						   />
+		
+	<!--/s:Group-->
+	
+	<!--s:Group id="swfHoldingGroup"
+			 x="162" y="100">
+		
+	</s:Group>
+	
+	<mx:Canvas id="clickCatcher"
+			   x="162" y="100"
+			   width="700" height="500"
+			   backgroundColor="0xffff00"
+			   backgroundAlpha="0.01"				   
+			   click="clickCatcher_clickHandler(event)"
+			   /-->
+	
+	<!-- =========  VIDEO PLAYER   =========== -->
+	
+	<!--s:VideoDisplay id="videoPlayer"					
+					includeInLayout="{videoPlayer.visible}"
+					scaleMode="stretch"
+					x="162" y="100"
+					visible="false"
+					width="700" height="500"
+					/-->
+	
+	<!-- =========  NOTES  =========== -->
+	
+	<!--mx:HTML id="notesTextArea"
+			 x="162" y="100"
+			 width="{mainPreviewWindow.width}" height="{mainPreviewWindow.height}"
+			 /-->
+	
+	
+	<!-- =========  THUMBNAIL WINDOWS =========== -->
+	
+	
+	<!--s:Image id="previousThumbnailWindow"			 
+			 y = "649"
+			 x = "227"
+			 width="133" height="100"
+			 fillMode="scale"
+			 scaleMode="stretch"
+			 /-->
+	
+	<!-- =========  VIDEO PLAYER CONTROLS =========== -->
+	
+	<!--s:HGroup id="videoPlayerButtonsHGroup" horizontalCenter="0" y="664"
+			  visible="false" includeInLayout="{videoPlayerButtonsHGroup.visible}">
+		<s:Button id="playBtn" skinClass="com.desktop.otsuka.slidelibrary.view.skins.PlayButtonSkin" 
+				  click="playVideo()" 
+				  fontSize="28" fontWeight="bold" enabled="{playBtnEnabled}"/>
+		<s:Button id="pauseBtn" skinClass="com.desktop.otsuka.slidelibrary.view.skins.PauseButtonSkin" 
+				  click="stopVideo()"
+				  fontSize="28" fontWeight="bold" enabled="{pauseBtnEnabled}"/>
+		<s:Button id="nextBtn" skinClass="com.desktop.otsuka.slidelibrary.view.skins.ForwardButtonSkin" 
+				  click="seekForward()" 
+				  fontSize="28" fontWeight="bold" enabled="{nextBtnEnabled}" />
+		<s:Button id="backBtn" skinClass="com.desktop.otsuka.slidelibrary.view.skins.RewindButtonSkin" 
+				  click="seekBackward()"
+				  fontSize="28" fontWeight="bold" enabled="{backBtnEnabled}"/>
+	</s:HGroup>
+	
+	<s:Image id="nextThumbnailWindow"
+			 y = "649"
+			 x="664"
+			 width="133" height="100"
+			 fillMode="scale"
+			 scaleMode="stretch"  
+			 /-->
+	
+	<!--=================  NEXT - PREVIOUS BUTTONS  ===================== -->
+	
+	<!-- note : although these won't be visible to the user in V3 or above - we are keeping this buttons for helping our logic -->
+	<!-- The Left and Right Buttons will have alpha = 0 only during the presentView/Projector Mode -->
+	
+	<s:Button id="previousButton"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.PreviousButtonSkin"
+			  y="650"
+			  click="prevSlideButtonClickHandler(event)"
+			  alpha="0"/>
+			  <!-- x = "{leftButtonBackground.x + 1}"  -->
+	
+	<s:Button id="nextButton"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.NextButtonSkin"
+			  y="650"
+			  alpha="0"
+			  click="nextSlideButtonClickHandler(event)"
+			  />
+	
+			  <!-- x="{rightButtonBackground.x + rightButtonBackground.width - nextButton.width - 1}" -->
+	
+	<!--=================  BUTTONS  ===================== -->
+	
+	
+	<!--s:Button id="showNotesButton"			  
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.PresentShowNotesButtonSkin"
+			  click="showNotesButton_clickHandler(event)"				  
+			  y="10"
+			  x = "820"
+			  />
+	
+	<s:Button id="showSlideButton"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.PresentShowSlideButtonSkin"
+			  click="showSlideButton_clickHandler(event)"				  
+			  visible="false"
+			  y="10"
+			  x = "820"
+			  />
+	
+	<s:Button id="endPresentButton"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.EndPresentationButtonSkin"
+			  click="endPresentButton_clickHandler(event)"
+			  y="10"
+			  x = "20"
+			  /-->
+	
+	
+	
+	
+	
+	
+</s:Group>

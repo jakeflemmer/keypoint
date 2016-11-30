@@ -1,0 +1,367 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx"
+		 creationComplete="creationCompleteHandler(event)"
+		 
+		 >
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			import com.desktop.otsuka.slidelibrary.view.skins.CoreTabSkin;
+			import com.desktop.otsuka.slidelibrary.view.skins.CustomTabSkin;
+			
+			import mx.events.FlexEvent;
+			
+			private var corePresentationsArray:Array;
+			private var customPresentationsArray:Array;
+			private var _presentationSelectedId:int = 0;
+			private var selectedPresentationObject:Object;
+			private var presentationTitlesSortedAscending:Boolean = false;
+			private var presentationDatesSortedAscending:Boolean = false;		
+			
+			protected function creationCompleteHandler(event:FlexEvent):void
+			{
+							
+			}
+			public function init():void{	
+				loadTheCorePresentations();
+				loadTheCustomPresentation();
+			}
+			
+			// =====================================================================================
+			//  LOAD THE PRESENTATIONS
+			// =====================================================================================
+			
+			public function loadTheCorePresentations():void{
+				var results:Array = dbModel.getAllPresentationsByDate(dbModel.systemSQLConnection);
+				trace("core results : " + results);
+				this.corePresentationsArray = results;
+				populateTheCorePresentationsList();				
+			}
+			public function loadTheCustomPresentation():void{
+				var results:Array = dbModel.getAllPresentationsByDate(dbModel.customSQLConnection);
+				trace("custom results : " + results);
+				this.customPresentationsArray = results;
+				populateTheCustomPresentationsList();
+				
+			}
+			
+			// =====================================================================================
+			//  POPULATE THE LISTS
+			// =====================================================================================
+			
+			private function populateTheCorePresentationsList():void{
+				
+				corePresentationsVGroup.removeAllElements();
+				for ( var i :uint = 0 ; i < this.corePresentationsArray.length; i++)
+				{
+					var presenationObject:Object = corePresentationsArray[i];
+					var presentationTile:PresentationTileRenderer = new PresentationTileRenderer();
+					presentationTile.init(presenationObject);
+					presentationTile.addEventListener(Event.SELECT, onPresentationSelected);
+					
+					corePresentationsVGroup.addElement(presentationTile);
+				}
+			}
+			private function populateTheCustomPresentationsList():void{
+				
+				customPresentationsVGroup.removeAllElements();
+				for ( var i :uint = 0 ; i < this.customPresentationsArray.length; i++)
+				{
+					var presenationObject:Object = customPresentationsArray[i];
+					var presentationTile:PresentationTileRenderer = new PresentationTileRenderer();
+					presentationTile.init(presenationObject);
+					presentationTile.addEventListener(Event.SELECT, onPresentationSelected);
+					
+					customPresentationsVGroup.addElement(presentationTile);
+				}
+			}
+			
+			private function onPresentationSelected(e:Event):void{
+				selectedPresentationObject = (e.target as PresentationTileRenderer).presentationObject;
+				presentationSelectedId = (e.target as PresentationTileRenderer).presentationId;
+				deselectAllOtherPresenations();
+			}
+			private function deselectAllOtherPresenations():void{
+				
+				var num:uint = corePresentationsVGroup.numChildren;
+				for ( var i:uint =0 ; i < num; i++)
+				{
+					var p:PresentationTileRenderer = corePresentationsVGroup.getChildAt(i) as PresentationTileRenderer;
+					if ( p.presentationId == presentationSelectedId) continue;
+					p.deselect();
+				}
+			}
+			
+			// =====================================================================================
+			//  TAB CLICK HANDLERS
+			// =====================================================================================
+			protected function presentationsTabBtn_clickHandler(event:MouseEvent):void
+			{
+				selectThePresentationsLibraryTab(true);		
+			}
+			
+			protected function customTabBtn_clickHandler(event:MouseEvent):void
+			{
+				selectThePresentationsLibraryTab(false);
+			}
+			
+			
+			
+			
+			
+			//================================================================================================
+			// MAIN BUTTON HANDLERS
+			//================================================================================================
+			
+			protected function previewBtn_clickHandler(event:MouseEvent):void
+			{
+				var se:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE); 
+				se.presentationObject = selectedPresentationObject;
+				se.navigateToPage = SlidesEvent.PREVIEW_PAGE;
+				dispatchEvent(se);
+				
+			}
+			
+			protected function customizeBtn_clickHandler(event:MouseEvent):void
+			{
+				var se:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE); 
+				se.presentationObject = selectedPresentationObject;
+				se.navigateToPage = SlidesEvent.CUSTOMIZE_PAGE;
+				dispatchEvent(se);
+				
+			}
+			
+			protected function printBtn_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				
+			}
+			
+			protected function presentBtn_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				
+			}
+			
+			
+			
+			
+			
+			
+			
+			//================================================================================================
+			// SORT FUNCTIONS
+			//================================================================================================
+			
+			private function sortPresentationsByTitle():void{
+				var num:int = corePresentationsVGroup.numChildren;
+				var kidsArray:Array = new Array();
+				for ( var i:uint=0; i < num; i++)
+				{
+					var kid:PresentationTileRenderer = corePresentationsVGroup.getChildAt(i) as PresentationTileRenderer;
+					kidsArray.push(kid);					
+				}
+				corePresentationsVGroup.removeAllElements();
+				
+				presentationTitlesSortedAscending = ! presentationTitlesSortedAscending;
+				
+				if ( presentationTitlesSortedAscending)
+				{
+					kidsArray.sortOn("title");
+				}
+				else
+				{
+					kidsArray.sortOn("title",Array.DESCENDING);
+				}
+				
+				for ( var j:uint=0; j < num; j++)
+				{
+					corePresentationsVGroup.addElement(kidsArray[j]);
+				}
+			}
+			private function sortPresentationsByDate():void{
+				var num:int = corePresentationsVGroup.numChildren;
+				var kidsArray:Array = new Array();
+				for ( var i:uint=0; i < num; i++)
+				{
+					var kid:PresentationTileRenderer = corePresentationsVGroup.getChildAt(i) as PresentationTileRenderer;
+					kidsArray.push(kid);					
+				}
+				corePresentationsVGroup.removeAllElements();
+				
+				presentationDatesSortedAscending = ! presentationDatesSortedAscending;
+				
+				if ( presentationDatesSortedAscending)
+				{
+					kidsArray.sortOn("date", Array.NUMERIC);
+				}
+				else
+				{
+					kidsArray.sortOn("date",Array.DESCENDING | Array.NUMERIC);
+				}
+				
+				for ( var j:uint=0; j < num; j++)
+				{
+					corePresentationsVGroup.addElement(kidsArray[j]);
+				}
+			}
+			
+			//================================================================================================
+			// GETTERS AND SETTERS
+			//================================================================================================
+			
+			public function get presentationSelectedId():int{
+				return _presentationSelectedId;
+			}
+			public function set presentationSelectedId(selectedId:int):void{
+				if ( selectedId > 0 )
+				{
+					_presentationSelectedId = selectedId;
+					buttonsHGroup.enabled = true;
+				}
+				
+			}
+			
+			public function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+			
+			protected function titleBarImg_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				
+			}
+			
+		]]>
+	</fx:Script>
+	
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+		
+	<s:Image id="backgroundImg"
+			 source="@Embed('assets/images/core_box.png')"
+			 horizontalCenter="0"
+			 bottom="120"
+			 />
+	
+	<s:Image id="innerBoxBackground"
+			 source = "@Embed('assets/images/mainViewInnerBoxBackground.png')"
+			 horizontalCenter="0"
+			 bottom = "130"
+			 />
+	
+	<s:Image id="titleBarImg"
+			 source = "@Embed('assets/images/titleBar.png')"
+			 y = "{presentationsTabBtn.y + presentationsTabBtn.height + 13}"
+			 x = "{backgroundImg.x + 25}"	
+			 click="sortPresentationsByTitle();"
+			 />
+	
+	<s:Label id="titleLbl"
+			 text="TITLE"
+			 x="{titleBarImg.x + 40}"
+			 y="{titleBarImg.y+10}"
+			 />
+	
+	<s:Image id="dateBarImg"
+			 source="@Embed('assets/images/dateBar.png')"
+			 y = "{titleBarImg.y}"
+			 x = "{titleBarImg.x + titleBarImg.width + 5}"
+			 click="sortPresentationsByDate();"
+			 />
+	
+	<s:Label id= "dateLbl"
+			 text="DATE"
+			 x="{dateBarImg.x + 40}"
+			 y="{titleLbl.y}"
+			 />
+	
+	
+	<s:Image id="scrollTrackImg"
+			 source="@Embed('assets/images/scroll_track.png')"
+			 x="{backgroundImg.x + backgroundImg.width - scrollTrackImg.width - 1}"
+			 y="{backgroundImg.y + 7}"
+			 />
+	
+	<s:Button id="presentationsTabBtn"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.CoreTabSkin"			
+			 label="Presentations Library"
+			 y="{backgroundImg.y - presentationsTabBtn.height}"
+			 x="{backgroundImg.x}"
+			 click="presentationsTabBtn_clickHandler(event)"
+			 />
+	
+	<s:Button id="customTabBtn"
+			 skinClass="com.desktop.otsuka.slidelibrary.view.skins.CustomTabSkin"
+			 label="My Presentations"
+			 y="{backgroundImg.y - customTabBtn.height}"
+			 x="{presentationsTabBtn.x + presentationsTabBtn.width+5}"
+			 click="customTabBtn_clickHandler(event)"			 
+			 />
+	
+	<s:HGroup id="buttonsHGroup" 
+			  x="{customTabBtn.x + customTabBtn.width + 10}"
+			  y="{presentationsTabBtn.y}"
+			  enabled="false"
+			  
+			  >
+		<s:Button id="previewBtn"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.BlueButtonSkin"
+				  label="PREVIEW"
+				  click="previewBtn_clickHandler(event)"
+				  />
+		<s:Button id="customizeBtn"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.BlueButtonSkin"
+				  label="CUSTOMIZE"
+				  click="customizeBtn_clickHandler(event)"
+				  />
+		<s:Button id="printBtn"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.BlueButtonSkin"
+				  label="PRINT"
+				  click="printBtn_clickHandler(event)"
+				  />
+		<s:Button id="presentBtn"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.BlueButtonSkin"
+				  label="PRESENT"
+				  click="presentBtn_clickHandler(event)"
+				  />
+				  
+	</s:HGroup>
+
+	<s:VGroup id="corePresentationsVGroup"
+			  width="{innerBoxBackground.width}"
+			  height="{innerBoxBackground.height}"
+			  x = "{innerBoxBackground.x + 5}"
+			  y = "{titleBarImg.y+titleBarImg.height + 1}"
+			  gap="0"				
+			  />
+		
+	<s:VGroup id="customPresentationsVGroup"
+			  width="{innerBoxBackground.width}"
+			  height="{innerBoxBackground.height}"
+			  x = "{innerBoxBackground.x + 5}"
+			  y = "{titleBarImg.y+titleBarImg.height + 1}"
+			  gap="0"
+			  />
+		
+		
+		
+	
+	
+			 
+	
+	
+	
+	
+	
+	
+	
+</s:Group>

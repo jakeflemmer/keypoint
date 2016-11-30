@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 width="724" height="768"
+		 >
+	<s:Rect width="724" height="720" y = "45">
+		<s:fill>
+			<s:SolidColor color="0xdddddd" />
+		</s:fill>
+	</s:Rect>
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.ClinicalPathwaysLauncher;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import flash.net.navigateToURL;
+			import flash.utils.setTimeout;
+			
+			private var _nnpeBrandImgVisible;
+			private var clinicalPathwaysLauncher:ClinicalPathwaysLauncher;
+			
+			public function init(  nnpeBrandImgVisible:Boolean  ):void{	
+				
+				this._nnpeBrandImgVisible = nnpeBrandImgVisible
+				populateTheHelpList();
+			}
+			
+			// =====================================================================================
+			//  POPULATE THE LISTS
+			// =====================================================================================
+			
+			private function populateTheHelpList():void{
+				
+				helpVGroup.removeAllElements();
+				
+				var helpTileRenderer:ResourceTileRenderer = makeReferenceTileRenderer( "KEYPOINT User Guide");
+				helpVGroup.addElement(helpTileRenderer);
+				
+				var faqTileRenderer:ResourceTileRenderer = makeReferenceTileRenderer( "Frequently Asked Questions");
+				helpVGroup.addElement(faqTileRenderer);
+				
+				helpVGroup.visible = true;
+			}
+			
+			private function makeReferenceTileRenderer(t:String  ) : ResourceTileRenderer {
+				var resourceTile:ResourceTileRenderer = new ResourceTileRenderer(); 
+				resourceTile.title = t;
+				
+				resourceTile.addEventListener(MouseEvent.CLICK, function ( e:Event ):void {
+					if ( t.indexOf("Questions") > 0 )
+					{
+						// FAQ
+						navigateToURL(new URLRequest('assets/help/FPO_FAQ.pdf'));
+					}else{
+						// HELP
+						
+						if ( _nnpeBrandImgVisible )
+						{
+							//navigateToURL(new URLRequest('assets/help/1364_TABS_UserGuide_v13.pdf'));
+							navigateToURL(new URLRequest('assets/help/NNPE_userguide.pdf'));
+						}else
+						{
+							navigateToURL(new URLRequest('assets/help/EXCEL_userguide.pdf'));
+							//navigateToURL(new URLRequest('assets/help/1364_ADF_UserGuide_v23.pdf'));
+							
+						}
+					}
+				});
+				return resourceTile;
+			}
+			
+			
+			
+			
+			
+			
+			//================================================================================================
+			// GETTERS AND SETTERS
+			//================================================================================================
+			
+			public static function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+		]]>
+	</fx:Script>
+	
+	
+	<!-- background -->
+	
+	<!-- optionalBackgroun.png = 302x46 needs to be 724x46-->
+	<s:Image id="greyTitleBar"
+			 source= "@Embed('assets/images/optionalBackground.png')"
+			 scaleX="2.3974"
+			 scaleY="1.02"
+			 y = "-1"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	<!-- =========================================================================================
+	Screen Title 
+	========================================================================================= -->
+	
+	<s:Label id="screenTitle"
+			 text="Help"
+			 width="100%"
+			 height="45"
+			 y="20"
+			 horizontalCenter="0"
+			 fontSize="18"
+			 color = "0x777777"
+			 textAlign="center"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	<!-- i think the background is just plain grey - no image -->
+	
+	<!-- =========================================================================================
+	MAIN GROUP WINDOWS 
+	========================================================================================= -->
+	
+	
+	<s:Scroller 
+		height="510" 
+		x="37" y = "170"
+		>
+		
+		<s:VGroup id="helpVGroup"
+				  width="650"			 
+				  y = "170"
+				  gap="1"	
+				  height="510"
+				  >
+			
+		</s:VGroup>	
+	</s:Scroller>
+	
+	
+</s:Group>

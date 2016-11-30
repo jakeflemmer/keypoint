@@ -1,0 +1,2581 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx"		  
+		 xmlns:view="com.desktop.otsuka.slidelibrary.view.*"
+		 creationComplete="group1_creationCompleteHandler(event)"
+		 >
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.ClearDatabaseCommand;
+			import com.desktop.otsuka.slidelibrary.controller.CreateDatabaseCommand;
+			import com.desktop.otsuka.slidelibrary.controller.CreateV6DatabaseCommand;
+			import com.desktop.otsuka.slidelibrary.controller.DatabaseMigrationCommand;
+			import com.desktop.otsuka.slidelibrary.controller.DownloadFilesAndWriteToDiskCommand;
+			import com.desktop.otsuka.slidelibrary.controller.DownloadNecessaryDataCommand;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesUtilities;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			import com.desktop.otsuka.slidelibrary.model.SlideSystemModel;
+			import com.desktop.otsuka.slidelibrary.view.TitleSlideWidget;
+			
+			import flash.net.navigateToURL;
+			import flash.utils.setTimeout;
+			
+			import mx.collections.ArrayCollection;
+			import mx.controls.Alert;
+			import mx.events.FlexEvent;
+			import mx.formatters.DateFormatter;
+			import mx.managers.PopUpManager;
+			import mx.rpc.events.FaultEvent;
+			import mx.rpc.events.ResultEvent;
+			import mx.rpc.http.HTTPService;
+			
+			public var selectedBrandObject:Object;	
+			public var downloadingTheSlidesToDiskAlert:PopupAlert; 
+			
+			public var updateHaveBeenMade:Boolean = false;	// this guy is essentially useless now
+			public var updatesWereApplied:Boolean = false;
+			
+			private var hadCoreUpdates:Boolean = false;
+			
+			
+			private var modalPopupAlert:PopupAlert;
+			private var bypassPopupAlert:PopupAlert;
+		
+			private var workingCounter:uint = 0;
+			
+			public var model:SlideSystemModel = new SlideSystemModel ();
+			
+			private var updatesDataSlidesEvent:SlidesEvent;
+			
+			private var updatingWasBypassedAtLastLogin:Boolean = false; 
+			
+			private var forcedUpdatesMessageTimer:Timer;
+			
+			
+			protected function group1_creationCompleteHandler(event:FlexEvent):void
+			{
+				loginPanel.addEventListener(SlidesEvent.LOGIN_COMPLETE, onLoginComplete);
+				loginPanel.addEventListener(SlidesEvent.UPGRADE_SOFTWARE_VERSION_AVAILABLE, onShowUpgradeVersionAvailable);
+			}
+			private function onLoginComplete(se:SlidesEvent):void{
+				dbModel._activateKeys = false;
+				var brand:Object = new Object;
+				if ( LoginPanel.VICIOUS_HACK )
+				{
+					brand.name = "excel";
+					brand.id = 1;
+					this.selectedBrandObject = brand;
+					goToMainApp();
+					return;
+				}
+				
+				if ( se.offlineLogIn)
+				{
+					loginPanel.usersBrands = new Array();
+					if ( se.hasExcel && se.hasNnpe )
+					{
+						dbModel._moreThanOneBrand = true;
+						var nn:Object = new Object();
+						nn.name = "nnpe";
+						nn.id = 1;
+						loginPanel.usersBrands.push(nn);
+						var ex:Object = new Object();
+						ex.name = "excel";
+						ex.id = 2;
+						loginPanel.usersBrands.push(ex);
+						gotoBrandsSelectionPage();
+						return;
+					}
+					if ( se.hasExcel )
+					{
+						dbModel._moreThanOneBrand = false;
+						brand.name = "excel";
+						brand.id = 2;
+						this.selectedBrandObject = brand;
+						goToMainApp();
+						return;
+					}
+					if ( se.hasNnpe )
+					{
+						dbModel._moreThanOneBrand = false;
+						brand.name = "nnpe";
+						brand.id = 1;
+						this.selectedBrandObject = brand;
+						goToMainApp();
+						return;
+					}
+				}
+				updateHaveBeenMade = false;
+				var newUser:Boolean = loginPanel.new_user_logged_in;
+				
+				var ssv:SlideSystemView = this.parent as SlideSystemView;
+				ssv.customSpinner.startSpinner();
+				
+				// V6 POPUPS openModalAlertWindow();	// Setting up data model
+				
+				if ( newUser )
+				{
+					dropOldDataTables();
+					createNewDataTables();
+					if ( LoginPanel.MAC_BUILD )
+					{
+						setTimeout(function(o:Object=null):void{
+							// V6 POPUPS modalPopupAlert.bodyTextArea.text = "Gathering new user data";
+							loadJSONData();
+						},5000);
+					}
+					else
+					{
+						// V6 POPUPS modalPopupAlert.bodyTextArea.text = "Gathering new user data";
+						loadJSONData();
+					}
+				}
+				else{
+					// V6 POPUPS modalPopupAlert.titleLabel.visible = true;
+					// V6 POPUPS modalPopupAlert.titleLabel.text = DatabaseModel.MESSAGE_34; // "Updating slide library";;
+					// V6 POPUPS modalPopupAlert.bodyTextArea.text = DatabaseModel.MESSAGE_7a;
+					loadJSONData();
+				}
+			}
+			//============================================================================================
+			// NEW DATA TABLES
+			//============================================================================================
+			private function dropOldDataTables():void{		
+				var databaseCleaner:ClearDatabaseCommand = new ClearDatabaseCommand();
+				databaseCleaner.clearDatabase();			
+			}
+			private function createNewDataTables():void{
+				//var creator:CreateDatabaseCommand = new CreateDatabaseCommand();
+				var creator:CreateV6DatabaseCommand = new CreateV6DatabaseCommand();
+				creator.createTheDataBase();
+				
+			}
+			//============================================================================================
+			// LOAD JSON DATA
+			//============================================================================================
+			private function loadJSONData():void{
+				var jsonDataDownloader:DownloadNecessaryDataCommand = new DownloadNecessaryDataCommand(loginPanel.user_hash);
+				
+				if ( loginPanel.new_user_logged_in )
+				{
+					jsonDataDownloader.addEventListener(SlidesEvent.NEW_USER_DATA_LOADED,onDownloadedNewUserData);
+					jsonDataDownloader.downloadAllUserData();	
+				}
+				else
+				{	// UPDATES
+					jsonDataDownloader.addEventListener(SlidesEvent.UPDATES_DATA_LOADED,onDownloadedUpdatesData);
+					jsonDataDownloader.downloadUpdatesData(loginPanel.user_hash);
+				}
+			}
+			//============================================================================================
+			// NEW USER DATA DOWNLOADED
+			//============================================================================================
+			private function onDownloadedNewUserData(se:SlidesEvent):void{
+				
+				var slidesAloneData:Array  = (se.target as DownloadNecessaryDataCommand).slidesAloneData as Array;
+				var bundlesAloneData:Array = (se.target as DownloadNecessaryDataCommand).bundlesAloneData as Array;
+				var presentationsData:Object = (se.target as DownloadNecessaryDataCommand).presentationsData;
+				
+				// V6 POPUPS modalPopupAlert.bodyTextArea.text = "Inserting slides into database";
+				
+				setTimeout(function(o:Object=null):void{
+					
+					insertSlidesAloneDataIntoTables(slidesAloneData);
+					// V6 POPUPS modalPopupAlert.bodyTextArea.text = "Inserting bundles into database";
+					
+					setTimeout(function(o:Object=null):void{
+						
+						insertBundlesAloneDataIntoTables(bundlesAloneData);
+						// V6 POPUPS modalPopupAlert.bodyTextArea.text = "Inserting presentations into database";
+						
+						setTimeout(function(o:Object=null):void{
+							
+							insertPresenationDataIntoTables(presentationsData);
+							// V6 POPUPS modalPopupAlert.bodyTextArea.text = "Inserting optional decks into database";
+							insertOptionalDecksDataIntoTables(presentationsData);
+							// V6 POPUPS modalPopupAlert.bodyTextArea.text = "Inserting resources into database";
+							insertResourcesDataIntoTables(presentationsData);
+							insertExternalAppsDataIntoTables(presentationsData);
+							
+							// V6
+						    SlidesUtilities.preProcessCoreDecksForEitherOrBundleRule(presentationsData);
+							
+							//yes we want to process this the moment decks are added
+							
+							
+							// V6
+							// insert custim decks eh !
+							insertCustomDecksDataIntoTables(presentationsData);
+							
+//							while doing this we want to pull all the either or optional slides associated with the core deck
+//							and add them to the deck making them unwanted if they are not already wanted
+							// well actually it looks like the avove is alerady being done
+							
+							
+							//------------------------------------------------
+							// V6 TODO - apply custom_deck_updates now
+							updateCustomDecksFromUpdatesDate(presentationsData);
+							
+							// V6 POPUPS modalPopupAlert.close();
+							var ssv:SlideSystemView = parent as SlideSystemView;
+							ssv.customSpinner.closeSpinner();
+							
+							loadTheSlidesAndWriteThemToDisk();  // which will call gotoBrandsPage(); and insert user into datatable
+							
+						},200);
+					},200);
+				},200);
+				
+			}
+			
+			
+			
+			
+			//============================================================================================
+			// UPDATES DATA DOWNLOADED
+			//============================================================================================
+			private function onDownloadedUpdatesData(se:SlidesEvent):void{
+				
+				//===================================================================
+				// V6
+				// THEY  CAN CHOOSE IF THEY WANT TO APPLY UPDATES OR NOT
+				//===================================================================
+				
+				var migrator:DatabaseMigrationCommand = new DatabaseMigrationCommand();
+				migrator.handleDataBaseMigration();
+				
+				// .1 MAKE SERVICE CALL TO DETERMINE IF USER IS ALLOWED TO BYPASS UPDATES OR NOT
+				// .2 IF ALLOWED TO BYPASS UPDATES POP UP BOX TO FOR USER TO CHOOSE TO APPLY UPDATES OR NOT
+				// .3 POST THEIR CHOICE OF APPLYING UPDATES BACK TO SERVER				
+					
+				updatesDataSlidesEvent = se;
+				
+				var updatesData:Object = (se.target as DownloadNecessaryDataCommand).updatesData;
+				if ( ! updatesDataIsNotEmpty(updatesData) )
+				{
+					pushCustomDecksInQueue();
+					if ( modalPopupAlert ) modalPopupAlert.close();
+					var ssv:SlideSystemView = this.parent as SlideSystemView;
+					ssv.customSpinner.closeSpinner();
+					gotoBrandsPage();
+					return;
+				}
+
+				// make service call to see if skip updates allowed
+				var loader:URLLoader = new URLLoader();
+				loader.dataFormat = URLLoaderDataFormat.TEXT;				
+				loader.addEventListener(IOErrorEvent.IO_ERROR, bypassUpdatesResponseErrorHandler);
+				loader.addEventListener(Event.COMPLETE, bypassUpdatesResponseCompleteHandler);	
+								
+				var url:String = DownloadNecessaryDataCommand.ALT_DATA_URL + loginPanel.user_hash + "/check_bypass_allowed/";
+				
+				loader.load(new URLRequest(url));
+								
+						
+			}
+			
+			
+			private function bypassUpdatesResponseCompleteHandler(e:Event):void{
+				trace("bypassUpdate service call success : " + e.currentTarget.data );
+				var result:String = e.currentTarget.data as String;
+				if ( result.indexOf("true") > 0 )
+				{
+					// we are allowed to bypass
+					// pop alert
+					showBypassAlertsPopup();
+					updatingWasBypassedAtLastLogin = false;
+					
+				}
+				else{
+					// we are not
+					// V6 TODO we are supposed to show another message now about how they getting updates wether they want em or not !
+					updatingWasBypassedAtLastLogin = true;
+					continueOnDownloadedUpdatesData(updatesDataSlidesEvent);
+				}
+			}
+			
+			private function showBypassAlertsPopup():void{
+					bypassPopupAlert = PopupAlert(PopUpManager.createPopUp(parent,PopupAlert,true));
+					bypassPopupAlert.setWidthAndHeight(380,200);
+					bypassPopupAlert.buttonsHGroup.visible = false;
+					bypassPopupAlert.skipUpdatesButton.visible = true;
+					bypassPopupAlert.updateNowButton.visible = true;
+					bypassPopupAlert.skipUpdatesButton.includeInLayout = true;
+					bypassPopupAlert.updateNowButton.includeInLayout = true;
+					bypassPopupAlert.skipUpdatesButton.y = bypassPopupAlert.buttonsHGroup.y;
+					bypassPopupAlert.skipUpdatesButton.x = 50;
+					bypassPopupAlert.updateNowButton.y = bypassPopupAlert.buttonsHGroup.y;
+					bypassPopupAlert.updateNowButton.x = 210;
+					bypassPopupAlert.skipHRule.visible = true;
+					bypassPopupAlert.skipHRule.includeInLayout = true;
+					bypassPopupAlert.skipHRule.y = bypassPopupAlert.buttonsHGroup.y - 10;
+					bypassPopupAlert.skipHRule2.visible = true;
+					bypassPopupAlert.skipHRule2.includeInLayout = true;
+					bypassPopupAlert.skipHRule2.y = bypassPopupAlert.buttonsHGroup.y - 11;
+					bypassPopupAlert.titleLabel.text = "Updates Available";
+					bypassPopupAlert.titleLabel.visible = true;
+					bypassPopupAlert.bodyTextArea.text = DatabaseModel.UPDATES_AVAILABLE_MESSAGE;
+					bypassPopupAlert.bodyTextArea.setStyle("fontSize","14");
+					bypassPopupAlert.bodyTextArea2.visible = true;
+					bypassPopupAlert.bodyTextArea2.includeInLayout = true;
+//					bypassPopupAlert.cancelButton.visible = false;
+//					bypassPopupAlert.noButton.label = "Skip Updates";
+//					bypassPopupAlert.yesButton.label = "Update Now";
+//					
+					bypassPopupAlert.skipUpdatesButton.addEventListener(MouseEvent.CLICK, function (e:Event):void{
+						// they want to bypass updates
+						// POST to Malka's service to let her know they bypassed
+						POSTToUpdatesProcessedService(false);
+						PopUpManager.removePopUp(bypassPopupAlert);
+						
+					});
+					bypassPopupAlert.updateNowButton.addEventListener(MouseEvent.CLICK, function (e:Event):void{
+						//YES
+						updatesWereApplied = true;
+						continueOnDownloadedUpdatesData(updatesDataSlidesEvent);
+						PopUpManager.removePopUp(bypassPopupAlert);
+					});
+					
+					PopUpManager.centerPopUp(bypassPopupAlert);				
+			}
+			private function bypassUpdatesResponseErrorHandler(e:Error):void{
+				trace("bypassUpdate service call FAIL " );
+				Alert.show("There has been an error syncing with the cloud. Please log out and try again.","Attention");
+				var se:SlidesEvent = new SlidesEvent(SlidesEvent.LOGOUT);
+				dispatchEvent(se);
+			}
+			
+			private function POSTToUpdatesProcessedService(updatesProcessed:Boolean):void{
+				// http://otsukaweb2.beta.va-dev.net/library/api/6.0/user/e2510fc8343a4808a6cb6a3ea1c087a4/updates_processed/ --data 'updates_processed=no'
+				var bypassService:HTTPService = new HTTPService();
+				bypassService.method = "POST";
+				
+				var params:Object = new Object();
+				params.updates_processed = updatesProcessed;
+				
+				var user:Object = dbModel.getLastUserFromUsersTable()[0];
+				var userHash:String = user.user_hash;
+				
+				bypassService.url = DownloadNecessaryDataCommand.ALT_DATA_URL + loginPanel.user_hash + "/updates_processed/";  								
+				
+				bypassService.addEventListener(ResultEvent.RESULT, function ( re:ResultEvent) : void{
+					trace("updates_processed service call SUCCESS : " + re.message);
+					// skip to end of updates code
+					if ( updatesProcessed == false ) {
+						var ssv:SlideSystemView = parent as SlideSystemView;
+						ssv.customSpinner.closeSpinner();
+						// V6 POPUPS if ( modalPopupAlert ) modalPopupAlert.close();
+						gotoBrandsPage();
+					}
+					
+				});
+				bypassService.addEventListener(FaultEvent.FAULT, function (fe:FaultEvent) :void {
+					trace("updates_processed service call FAIL : " + fe.message);
+					Alert.show("Error accessing 'updates_processed' service", "Alert");
+				});
+				
+				bypassService.send(params);
+			}
+			
+			//=================================================================================
+			//  APPLY THE UPDATES
+			//=================================================================================
+			
+			private function continueOnDownloadedUpdatesData(se:SlidesEvent):void{
+				
+				// tell Malka's service that we are applying the updates now
+				POSTToUpdatesProcessedService(true);				
+				
+				
+				// V6 POPUPS modalPopupAlert.titleLabel.visible = true;
+				// V6 POPUPS modalPopupAlert.titleLabel.text = DatabaseModel.MESSAGE_34; // "Updating slide library"
+				// V6 POPUPS modalPopupAlert.bodyTextArea.text = DatabaseModel.MESSAGE_7a;
+				var updatesData:Object = (se.target as DownloadNecessaryDataCommand).updatesData;
+				
+				// V6
+				// FLOW
+				//-----------------
+				
+				// actually we do this one first because if they are adding a new core deck we need to get that core deck before we add any custom decks from that core deck
+				createFromUpdatesData(updatesData);
+				
+				// parse custom decks from updates
+				addCustomDecksFromUpdatesData( updatesData );
+				deleteCustomDecksFromUpdatesData(updatesData);
+				
+				// do regular core deck updates
+				deleteFromUpdatesData(updatesData);
+				//createFromUpdatesData(updatesData);
+				updateFromUpdatesData(updatesData);
+				updateResourcesFromUpdatesData( updatesData );
+				updateExternalAppsFromUpdatesData( updatesData );
+				
+				// TODO
+				// do custom deck updates one by one
+				
+				updateCustomDecksFromUpdatesDate(updatesData); // TODO need to change decks on one device and update on another to see what malka's updates data will look like
+				
+				// push the queue - displaying save custom decks service fail - error while saving data - yes to update no to log off.				
+				pushCustomDecksInQueue();
+				
+				
+				var ssv:SlideSystemView = this.parent as SlideSystemView;
+				ssv.customSpinner.closeSpinner();
+				// V6 POPUPS modalPopupAlert.close();	
+				loadTheSlidesAndWriteThemToDisk();
+			}
+			
+			private function pushCustomDecksInQueue():void{
+				// we go through all the custom decks and any that have 'is_pushed' == false we now push
+				var decksArray:Array = new Array();
+				var deletes:Array = new Array();
+				
+				var notPushedDecks:Array = dbModel.getWhere(dbModel.customSQLConnection, "presentations" ,"is_pushed",false);
+				if ( notPushedDecks && notPushedDecks.length > 0 )
+				{
+					for ( var d:uint = 0 ; d < notPushedDecks.length; d++ )
+					{
+						var cd :Object = notPushedDecks[d];
+						
+						if ( cd.is_deleted )
+						{
+							
+							var del:Object = new Object();
+							del.uuid = cd.guid;
+							del.user_last_saved = (new Date().time) / 1000;  // Number(po.user_last_saved);	//
+							
+							deletes.push(del);
+							
+						}else{
+							var customDeck:Object = makeCustomDeckObject(cd);
+							decksArray.push(customDeck);	
+						}
+					}
+				}else{
+					// no decks to push
+					return;
+				}				
+				
+				var jsonData:String = JSON.stringify(decksArray);
+				var jsonDeletesData:String = JSON.stringify(deletes);
+				
+				// send it all in one big push
+				var data: Object = new Object();
+				data.m = LoginPanel.m;
+				data.format = "flash";
+				
+				data.custom_decks = jsonData;
+				data.custom_decks_to_delete = jsonDeletesData;
+					
+				var pusher:HTTPService = new HTTPService();
+				
+				var user:Object = dbModel.getLastUserFromUsersTable()[0];
+				var userHash:String = user.user_hash;
+				
+				pusher.url = LoginPanel.BETA_OR_PROD_URL + "library/api/6.0/user/"+userHash+"/store_custom_decks/";  
+				pusher.method = "POST";
+				
+//				pusher.addEventListener(ResultEvent.RESULT, pushServiceResultHandler);
+				pusher.addEventListener(FaultEvent.FAULT, pushServiceFaultHandler);
+				
+				pusher.addEventListener(ResultEvent.RESULT,  function (re:ResultEvent):void{
+					trace("decks pushed from queue   " + re.message);
+					// TODO insert Malka's timestamp instead
+					// if success
+					var realTimestamp :Number;
+					var res:Object = JSON.parse(re.result as String);
+					if ( res && res.creation_success == true )
+					{
+						var malkasTimestamp:Number = res.timestamp;
+						for ( var pushedDecks:uint = 0 ; pushedDecks < notPushedDecks.length; pushedDecks++ )
+						{
+							var pushedDeck :Object = notPushedDecks[pushedDecks];
+														
+							dbModel.updateCustomPresentationIsPushed(pushedDeck.guid , true);
+							dbModel.updateCustomPresentationUserLastSaved(pushedDeck.guid, malkasTimestamp.toString());	
+												
+						}
+											
+					}else{
+						// actually i don't think it makes sense to do the below
+						//insertNow
+//						var now:Number = (new Date().time) / 1000;
+//						for ( var pushedDecks:uint = 0 ; pushedDecks < notPushedDecks.length; pushedDecks++ )
+//						{
+//							var pushedDeck :Object = notPushedDecks[pushedDecks];
+//							
+//							dbModel.updateCustomPresentationUserLastSaved(pushedDeck.guid, now.toString());	
+//							
+//						}
+						
+					}	
+					
+				});
+				
+				pusher.send(data);
+			}
+			
+			//====================================================================================
+			/*  private function makeCustomDeckObject(notPushedCD:Object):Object{
+				var now:Number = (new Date().time) / 1000;
+				
+				var customDeck : Object = new Object();
+				customDeck.uuid = notPushedCD.guid;
+				customDeck.deck_name = notPushedCD.custom_title;
+				customDeck.deck_id = notPushedCD.presentation_id;				
+				//customDeck.updates_last_applied = notPushedCD.updates_last_applied;
+				customDeck.presenters_name = "jboogie";
+				customDeck.user_last_saved = notPushedCD.user_last_saved;
+				customDeck.updates_last_applied = ( new Date().time / 1000 );
+				
+				var slideSectionIds:ArrayCollection = makeArrayOfSlideSectionIds(notPushedCD);
+				customDeck.slide_section_ids = slideSectionIds.source;
+				
+				return customDeck;
+				
+			}  */
+			private function makeCustomDeckObject(po:Object):Object{			
+				//var now:Number = (new Date().time) / 1000;
+				
+				var customDeck : Object = new Object();
+				customDeck.uuid = po.guid;
+				customDeck.deck_name = po.custom_title;
+				customDeck.deck_id = po.presentation_id;
+				
+				customDeck.updates_last_applied = ( new Date().time / 1000 );
+				
+				var results:Array = DatabaseModel.getInstance().getWhere(DatabaseModel.getInstance().customSQLConnection,"title_slide","custom_presentation_id",po.custom_presentation_id);
+				if ( ! results || results.length < 1 )
+				{
+					trace("NO TITLE SLIDE FOUND IN DB for custom deck being pushed from push queue!");					
+					
+					//customDeck.presenters_name = tsw.chosenName;
+					customDeck.presenters_name = null;
+					customDeck.presenters_date = null;
+				}else{
+					var loadedSlide:Object = results[0];
+					//var tsw:TitleSlideWidget = new TitleSlideWidget();
+					//customDeck.presenters_name = loadedSlide.title_string;
+					customDeck.presenters_name = ( SlidesUtilities.titleSlideNameHasBeenChanged(loadedSlide.chosenName) ? loadedSlide.chosenName : null);
+					
+					customDeck.presenters_date = loadedSlide.chosen_timestamp / 1000; 
+						
+				}
+				
+				
+				customDeck.user_last_saved = po.user_last_saved;
+				
+				var slideSectionIds:ArrayCollection = makeArrayOfSlideSectionIds(po);
+				customDeck.slide_section_ids = slideSectionIds.source;
+				
+				customDeck.created_date = Number(po.date_created) / 1000;//po.date_created;
+				
+				return customDeck;
+				
+			}
+			
+			private function makeArrayOfSlideSectionIds(po:Object) : ArrayCollection {
+				var ssids:ArrayCollection = new ArrayCollection();
+				var allSlides:Array = dbModel.getWhere(dbModel.customSQLConnection,"slides","presentation_id",po.custom_presentation_id );
+				if ( ! allSlides || allSlides.length < 1 ) throw new Error("there are no slides associated with this custom presentation");
+				for ( var i:uint = 0 ; i < allSlides.length; i++ ) {
+					var ss:Object = allSlides[i];
+					var ssid:int = ss.section_slide_id;
+					if ( ssid > 0 )
+					{
+						// we are good - continue
+					}else{
+						// this is a pre V6 saved customized deck
+						// work backwards from sec_slide_id_plus_cust_pres_id to get section_slide_id
+						ssid = ss.sec_slide_id_plus_cust_pres_id - ( po.custom_presentation_id * 10000);
+					}
+					if ( ss.unwanted == false )
+					{
+						ssids.addItem(ssid);	
+					}
+					
+				}
+				return ssids;
+			}
+			
+			//==========================================================================================
+			// V 6.0 PUSH AND PULL HERE
+			//==========================================================================================
+			
+//			private function  pushServiceResultHandler(re:ResultEvent):void{
+//				trace("decks pushed from queue   " + re.message);
+//				// TODO insert Malka's timestamp instead
+//			}
+			private function  pushServiceFaultHandler(fe:FaultEvent):void{
+				trace("boo   "+ fe.message);
+			}
+			//========================================================================================
+			
+			
+			private function updateCustomDecksFromUpdatesDate(updatesData:Object):Boolean{
+				
+				var iGotUpdates:Boolean = false;
+				if ( updatesData && updatesData.custom_decks && updatesData.custom_decks.length > 0 )
+				{
+					var cds:Array = updatesData.custom_decks as Array;
+					
+					for ( var i : uint = 0 ; i < cds.length; i++ )
+					{
+						var mcd:Object = cds[i];	//mcd = Malka's custom deck
+						// get the custom_deck in our hands
+						var cdWithGuid:Object = dbModel.getWhere( dbModel.customSQLConnection, "presentations","guid","'" +mcd.uuid + "'" )[0];
+						
+						if ( mcd.updates_to_apply && mcd.updates_to_apply.Create )
+						{
+							trace("i got updates !!!!!");
+							if ( mcd.updates_to_apply.Create.Section_Slides && mcd.updates_to_apply.Create.Section_Slides.length > 0 )
+							{
+								var slidesToInsert:Array = new Array();
+								for ( var creates:int = 0 ; creates < mcd.updates_to_apply.Create.Section_Slides.length; creates ++)
+								{
+									var createSectionSlide:Object = mcd.updates_to_apply.Create.Section_Slides[creates];
+									// get the real slide by section slide id
+									// change the unwanted to true
+									// insert into slides table
+									var custPresId:int = cdWithGuid.custom_presentation_id;
+									var sec_slide_id_plus_cust_pres_etc:int =  createSectionSlide.section_slide_id + ( custPresId * 10000 );
+									createSectionSlide.sec_slide_id_plus_cust_pres_id = sec_slide_id_plus_cust_pres_etc;
+									slidesToInsert.push(createSectionSlide);
+								}
+								dbModel.insertAnArrayOfSlidesIntoCustomSlidesTable(slidesToInsert,0,custPresId);
+								// reset the custom sequence of the entire deck because a new slide has been inserted into it
+								dbModel.updateWhere(dbModel.customSQLConnection, "slides", "customSequence","0","presentation_id",custPresId );
+							}		
+						}
+						if ( mcd.updates_to_apply && mcd.updates_to_apply.Delete )
+						{
+							trace("i got updates !!!!!");
+							//delete slides should be done now
+							if ( mcd.updates_to_apply.Delete.Section_Slides && mcd.updates_to_apply.Delete.Section_Slides.length > 0 )
+							{
+								for ( var deletes:int = 0 ; deletes < mcd.updates_to_apply.Delete.Section_Slides.length; deletes ++)
+								{
+									var deleteSectionSlideId:Object = mcd.updates_to_apply.Delete.Section_Slides[deletes];
+									
+									
+									var custPresId:int = cdWithGuid.custom_presentation_id;
+									var sec_slide_id_plus_cust_pres_etc:int =  deleteSectionSlideId + ( custPresId * 10000 );
+									// calc the sec_slide_plus_etc with cust pres id
+									dbModel.deleteAllWhere( dbModel.customSQLConnection, "slides" , "sec_slide_id_plus_cust_pres_id" ,sec_slide_id_plus_cust_pres_etc ); 
+									
+								}
+							}
+						}
+						if ( mcd.updates_to_apply && mcd.updates_to_apply.Update )
+						{
+							trace("i got updates !!!!!");
+							// UPDATES  
+							if ( mcd.updates_to_apply.Update.Presentations && mcd.updates_to_apply.Update.Presentations.length > 0 )
+							{
+								
+								// hey i don't even think we need this - d'uh !
+								//for ( var presUpdates:uint = 0; presUpdates < ( updatesData.Update.Presentations as Array).length; presUpdates++)
+								// au contraire it appers we do need this	
+								for ( var presUpdates:uint = 0; presUpdates < ( mcd.updates_to_apply.Update.Presentations as Array).length; presUpdates++)
+								{
+									var presUpdate:Object = mcd.updates_to_apply.Update.Presentations[presUpdates];
+									if ( presUpdate.hasOwnProperty("deck_name") )
+									{
+										iGotUpdates = true;
+										//dbModel.updateWhere(dbModel.systemSQLConnection, "presentations", "presentation_name",presUpdate.deck_name,"presentation_id",presUpdate.id );
+										dbModel.updateWhere(dbModel.customSQLConnection, "presentations", "custom_title",presUpdate.deck_name,"guid",presUpdate.uuid );
+									}
+								}
+							}
+							if ( mcd.updates_to_apply.Update.Section_Slides && ( mcd.updates_to_apply.Update.Section_Slides as Array).length > 0 )
+							{
+								
+								var sectionSlideId:int;
+								for ( var secSlideUpdateCounter:int=0; secSlideUpdateCounter < ( mcd.updates_to_apply.Update.Section_Slides as Array).length; secSlideUpdateCounter++)
+								{
+									var slideUpdate:Object = mcd.updates_to_apply.Update.Section_Slides[secSlideUpdateCounter];
+									if ( slideUpdate.hasOwnProperty("id") && slideUpdate.hasOwnProperty("slide_id") )
+									{
+										// REPLACE SLIDES 
+										updateHaveBeenMade = true;
+										sectionSlideId = slideUpdate.id;
+										
+										var custPresId:int = cdWithGuid.custom_presentation_id;
+										var sec_slide_id_plus_cust_pres_etc:int =  sectionSlideId + ( custPresId * 10000 );										
+										dbModel.updateWhere(dbModel.customSQLConnection, "slides", "slide_id",slideUpdate.slide_id,"sec_slide_id_plus_cust_pres_id",sec_slide_id_plus_cust_pres_etc );																								
+									}
+									
+									
+									if ( slideUpdate.hasOwnProperty("id") && slideUpdate.hasOwnProperty("sequence") )
+									{
+										// CHANGE SEQUENCE
+										updateHaveBeenMade = true;
+										sectionSlideId = slideUpdate.id;																																								
+												// so if the customPresenation is a sequence locked presentation then it should receive all sequence updates and customSequence should be zero ( not populated ) for all of its slides
+												// If it is a sequence locked deck but has a non sequenced lock bundle then the sequence should reset itself back to admin sequence
+												// so we can take a short cut and if the deck is sequenced locked then just set the customSequence number of all of its slides to zero
+												// because if it doesn't contain a non sequenced locked bundle then it should never have customSequence number
+												// and if it does contain a non sequenced locked bundle then it is supposed to reset anyway so still make all its slides have customSequence = zero.
+												
+										var custPresId:int = cdWithGuid.custom_presentation_id;
+										var sec_slide_id_plus_cust_pres_etc:int =  sectionSlideId + ( custPresId * 10000 );
+										
+												// set the sequence number based on the update as we usually do
+										dbModel.updateWhere(dbModel.customSQLConnection, "slides", "sequence",slideUpdate.sequence,"sec_slide_id_plus_cust_pres_id",sec_slide_id_plus_cust_pres_etc );
+												
+												if ( cdWithGuid.sequence_locked )
+												{
+													// set all the slides in the presentation to have customSequence = zero
+													dbModel.updateWhere(dbModel.customSQLConnection, "slides", "customSequence","0","presentation_id",custPresId );
+												}
+											}
+										 								
+									
+									
+									
+									if ( slideUpdate.hasOwnProperty("id") && slideUpdate.hasOwnProperty("mandatory") )
+									{
+										// CHANGE MANDATORY 
+										updateHaveBeenMade = true;
+										sectionSlideId = slideUpdate.id;										
+										
+										var custPresId:int = cdWithGuid.custom_presentation_id;
+										var sec_slide_id_plus_cust_pres_etc:int =  sectionSlideId + ( custPresId * 10000 );
+										
+										dbModel.updateWhere(dbModel.customSQLConnection, "slides", "is_mandatory",slideUpdate.mandatory,"sec_slide_id_plus_cust_pres_id",sec_slide_id_plus_cust_pres_etc );			
+												if ( slideUpdate.mandatory )
+												{
+													dbModel.updateWhere(dbModel.customSQLConnection, "slides", "unwanted","false","sec_slide_id_plus_cust_pres_id",sec_slide_id_plus_cust_pres_etc );	
+												}
+											}
+										}
+									} 
+						}
+					}
+								
+								
+				}
+				return iGotUpdates;
+				
+			}
+			
+			private function addCustomDecksFromUpdatesData( updatesData:Object ) :void{
+				// do we already have em? (guid)
+				// new - add em
+				// same - add em if timestamp is bigger - else skip
+				
+				if ( updatesData && updatesData.custom_decks && updatesData.custom_decks.length > 0 )
+				{
+					
+					var cds:Array = updatesData.custom_decks as Array;
+					
+					for ( var i : uint = 0 ; i < cds.length; i++ )
+					{
+						var cd:Object = cds[i];
+						// so we want to insert the custom deck if there is not already such a custom deck with the same guid
+						// and that should be handled by having INSERT OR REPLACE and the guid as the primary key
+						trace("updates custom deck guid : " + cd.uuid);
+
+						// so let's take the cd from Malka and populate all the fields we need to insert it into our presentations table
+						var coreDecksArray:Array = dbModel.getWhere(dbModel.systemSQLConnection, "presentations","presentation_id",cd.deck_id);
+						if ( coreDecksArray == null || coreDecksArray.length != 1 )
+						{
+							// DANGER todo - this happens if somebody creates a customized deck from a core deck that was deleted on admin but they 
+							// hadnt received the updates for that yet. so now this guy is getting this core deck that was created from a non existent core deck 
+							//	( non existant on admin but exist in client database )
+							continue;
+							//throw new Error("we are trying to insert a custom deck based off a core deck that we do not have. ( or we have two core decks with the same id ).");
+							// or more likely we created bogus custom decks during dev
+							//continue;
+						}
+						
+						var coreDeck:Object = coreDecksArray[0];
+						
+						
+						var po:Object = new Object();	// po = presentationObject
+						po.presentation_id = cd.deck_id;
+						po.presentation_name = coreDeck.presentation_name;
+						// take the user_last_saved date timestamp off the cd and convert it to date_created time format
+						// no put the current date as the timestamp !
+						//var ulsTStamp:Number = cd.user_last_saved;
+						//var dateFromTStamp:Date = new Date(ulsTStamp*1000);
+						//var dcString:String = DateField.dateToString(dateFromTStamp, "YYYY-MM-DD");
+						//po.date_created = dcString;	//coreDeck.date_created;
+						po.brand_id = coreDeck.brand_id;
+						po.is_locked = 0;	// we know it's not sequenceLocked cause otherwise wouldnt have been able to customize it in first place
+						po.custom_title = cd.deck_name;
+						po.printable_pdf = coreDeck.printable_pdf;
+						po.sequence_locked = coreDeck.sequence_locked;
+						po.sectionId = coreDeck.sectionId;
+						po.resources_title = coreDeck.resources_title;	
+						po.resources_order = coreDeck.resources_order;	
+						po.is_pushed = true;
+						po.guid = cd.uuid;																	
+						po.user_last_saved = cd.user_last_saved;
+						
+						po.date_created = ( cd.client_created_datetime	* 1000 ).toString();
+						
+						//lastly - if we don't already have this guy we need to add a custom_presentation_id
+						var cdsWithSameGuid:Array = dbModel.getWhere(dbModel.customSQLConnection,"presentations","guid","'"+cd.uuid+"'");
+						if ( cdsWithSameGuid && cdsWithSameGuid.length > 0)
+						{
+							//we already have this custom deck		
+							if ( cdsWithSameGuid.length > 1 ) throw new Error("More than one custom presentation in table with same GUID");
+							po.custom_presentation_id = cdsWithSameGuid[0].custom_presentation_id;
+							// now if our timestamp for this guy is the latest we skip everything 
+							var clientTimeStamp:Number = Number(cdsWithSameGuid[0].user_last_saved);
+							var malkasTimeStamp:Number = cd.user_last_saved as Number;
+							po.date_created = cdsWithSameGuid[0].date_created;
+							if ( malkasTimeStamp > clientTimeStamp )
+							{
+								// its newer so yes lets do the update
+								insertTitleSlideFromUpdatesJSON(cd,po);
+							}else{
+								continue;	// skip this guy its out of date
+							}
+						}else{
+							// get new custom id
+							var newCustPresId:int = dbModel.getNewCustomPresentationIdForPulledCustomDeck();
+							po.custom_presentation_id = newCustPresId;
+							// put current time as date_created
+							//var currentTStamp:Number = new Date().time;
+							//po.date_created = currentTStamp.toString();
+							insertTitleSlideFromUpdatesJSON(cd,po);
+						}
+						
+						// and even more finally - walk down the custom_decks_to_delete dictionary and set the is_deleted property
+						// from the dictionary and the user_last_saved time
+						// note - we have to do this in a sererate steps because decks to delete info is in a seperate dictionary in the JSON
+						if ( updatesData.custom_decks_to_delete && updatesData.custom_decks_to_delete.length > 0 )
+						{
+							for ( var d:int = 0 ; d < updatesData.custom_decks_to_delete.length; d++)
+							{
+								var custDel:Object = updatesData.custom_decks_to_delete[d];
+								
+							
+								if (cd.uuid == custDel.uuid)
+								{
+									if ( cdsWithSameGuid && cdsWithSameGuid.length > 0 )
+									{
+										if ( cdsWithSameGuid[0].user_last_saved > custDel.user_last_saved )
+										{
+											po.is_deleted = cdsWithSameGuid[0].is_deleted;
+										}else{
+											po.is_deleted = true;
+										}
+									}
+								}
+							}
+						}
+						
+						
+						// INSERT THIS SUCKER !!
+						dbModel.insertASinglePresentationObjectIntoPresentationsTable(po, dbModel.customSQLConnection);
+						
+						
+						// get all the real slides from the core db based on deck id
+						// take the slides from Malka and make those unwanted = false
+						// give malkas slide the custom sequence order based on the order malka returns em
+						
+						var coreSlides:Array;
+						coreSlides = dbModel.getWhere(dbModel.systemSQLConnection, "slides","presentation_id",cd.deck_id );
+						
+						var dupesMap:Object = new Object();
+						for ( var dup:uint = 0 ; dup < coreSlides.length; dup++ ) {
+							dupesMap[coreSlides[dup].section_slide_id] = coreSlides[dup];
+						}
+						var optionalSlides:Array = getAllTheOptionalSlidesBasedOnPresentationId(cd.deck_id as Number);
+						if ( optionalSlides && optionalSlides.length > 0 )
+						{
+							for ( var op:uint = 0; op < optionalSlides.length; op++)
+							{
+								var optional:Object = optionalSlides[op];
+								if ( dupesMap[optional.section_slide_id] == null )
+								{
+									dupesMap[optional.section_slide_id] = optional;
+									coreSlides.push(optional);	// only add this optional slide if it is not already in the core deck
+								}else{
+									trace("not adding dupe slide - just copying over optional_deck info");
+									dupesMap[optional.section_slide_id].optional_deck_id = optional.optional_deck_id;
+								}
+							}
+						}
+						if ( coreSlides.length == 0 )
+						{
+							// this was a made up deck for testing
+							// if somebody clicks on then deck there will be blood
+							continue;
+						}
+						
+						// make a map
+						var map:Object = new Object();
+
+						for ( var m:int = 0 ; m < coreSlides.length; m++)
+						{
+							var coreSlide:Object = coreSlides[m];
+							coreSlide.unwanted = ( coreSlide.is_mandatory == true ? false : true );	// the core slide mandatory property may have changed without an update if this is a new user!!
+							coreSlide.customSequence = 0;
+							coreSlide.sec_slide_id_plus_cust_pres_id = coreSlide.section_slide_id  +  (  po.custom_presentation_id * 10000);
+							
+							map[coreSlide.section_slide_id] = coreSlide;
+						}
+						
+						var malkasssids:Array = (cd.slide_section_ids as String).slice(1,cd.slide_section_ids.length-1).split(",");
+						
+						// now we only set the custom sequence if it NOT a sequence locked deck !
+						
+						//make an error here !!
+							
+							//do we need to put the sequence number itslef on??	
+						var forDebugNumberOfWantedSlides:uint = 0;
+						var nextCustomSequenceNumber:int = 1;
+						for ( var z:int = 0; z < malkasssids.length; z++)
+						{
+							var mcsid:Object = malkasssids[z];	// mcs malkas custom slideid		
+							var slideOutOfMap:Object = map[int(mcsid)]; 
+							if ( ! slideOutOfMap )
+							{
+								// the custom deck contains a slide that is not in the core deck
+								// this slide must be about to be deleted in the updates_to_apply for this custom deck
+								if ( cd.updates_to_apply.Delete && cd.updates_to_apply.Delete.Section_Slides && (cd.updates_to_apply.Delete.Section_Slides as Array).length > 0 )
+								{
+									// yep we're deleting slides so prolly this one too
+									slideOutOfMap = new Object();
+								}else{
+									// Turns out there can be also be a bunch of junk slides in the cloud's deck
+									// as long as we just continue they will be harmless so don't show message below
+									// Alert.show("We are pulling a custom deck that has slides that the core deck does not!");
+									continue;
+									//throw new Error("We are pulling a custom deck that has slides that the core deck does not!");
+								}
+							}
+							slideOutOfMap.unwanted = false;
+							forDebugNumberOfWantedSlides++;
+							if ( coreDeck.sequence_locked )
+							{
+								slideOutOfMap.customSequence = 0;
+							}else{
+								slideOutOfMap.customSequence = nextCustomSequenceNumber;
+							}
+							
+							nextCustomSequenceNumber += 2;
+						}
+						
+						trace("number of wanted slides : " + forDebugNumberOfWantedSlides + " : name : " + po.custom_title);					
+						
+						dbModel.insertAnArrayOfSlidesIntoCustomSlidesTable(coreSlides, 0, po.custom_presentation_id);
+						
+											
+					}
+					
+				}
+			}
+			private function getAllTheOptionalSlidesBasedOnPresentationId(presentationId:Number):Array{
+				// get all the optional decks associated to this presentation
+				// get all the slides from the optional_slides table that match those optional decks
+				var allOptionalSlides:Array = new Array();
+				var presId:uint;
+				presId = presentationId;
+				var optionalDeckAssociationsWithThisPresentationId:Array = dbModel.getWhere(dbModel.systemSQLConnection,"optional_deck_ids_relation_to_presentation_ids","presentation_id",presId);
+				if ( optionalDeckAssociationsWithThisPresentationId && optionalDeckAssociationsWithThisPresentationId.length > 0)
+				{
+					for ( var i:uint = 0 ; i< optionalDeckAssociationsWithThisPresentationId.length; i++)
+					{
+						var optionalDeckAssoc:Object = optionalDeckAssociationsWithThisPresentationId[i];
+						if ( optionalDeckAssoc.presentation_id == presId )
+						{
+							var optionalSlides:Array = dbModel.getWhere(dbModel.systemSQLConnection,"optional_slides","optional_deck_id",optionalDeckAssoc.optional_deck_id);
+							if ( optionalSlides && optionalSlides.length > 0 )
+							{
+								for ( var j:uint = 0 ; j < optionalSlides.length; j++)
+								{
+									var optionalSlide:Object = optionalSlides[j];
+									optionalSlide.optional_deck_id = optionalDeckAssoc.optional_deck_id; // TODO this should not be necessary
+									allOptionalSlides.push(optionalSlide);
+								}
+							}
+						}
+					}
+				}
+				return allOptionalSlides;
+			}
+			private function insertTitleSlideFromUpdatesJSON(cd:Object,po:Object):void{
+				/*
+				createTableStatement.text = "CREATE TABLE IF NOT EXISTS title_slide (" +
+				" custom_presentation_id INTEGER PRIMARY KEY NOT NULL, " +
+				" date_string TEXT," +	 
+				" date_x INTEGER," +
+				" date_y INTEGER," +
+				" date_size INTEGER," +
+				" date_color INTEGER," +
+				" title_string TEXT," +
+				" title_x INTEGER," +
+				" title_y INTEGER," +
+				" title_color INTEGER," +
+				" title_size INTEGER" +				
+				" )";*/
+				
+				var tsw:TitleSlideWidget = new TitleSlideWidget();
+				
+				if ( ( cd.presenters_date && cd.presenters_date > 0 ) || ( cd.presenters_name && cd.presenters_name != tsw.chosenName && cd.presenters_name != "PRESENTER'S NAME") )
+				{
+				var ts:Object = new Object();
+				ts.custom_presentation_id =  po.custom_presentation_id;
+				
+				if ( ( cd.presenters_date && cd.presenters_date > 0 )  )
+				{
+					var dateFormatter:DateFormatter = new DateFormatter();
+					dateFormatter.formatString = "MMM DD, YYYY";
+					ts.date_string = dateFormatter.format(new Date( ( cd.presenters_date * 1000 ) + ( 24 * 60 * 60 * 1000 ) ) );	// add a day of milliseconds to make it the next day - bug w adobe datepicker					
+				}else{
+					ts.date_string = tsw.chosenDateString;
+				}
+				if (  cd.presenters_name && cd.presenters_name != tsw.chosenName && cd.presenters_name != "PRESENTER'S NAME" ) 
+				{
+					ts.title_string = cd.presenters_name;					
+				}else{
+					ts.title_string = tsw.chosenName;
+				}
+				ts.date_x = 0; 
+				ts.date_y = 0;
+				ts.date_size = 0;
+				ts.date_color = 0;
+				
+				ts.title_x = 0;
+				ts.title_y = 0;
+				ts.title_color = 0;
+				ts.title_size = 0;
+				ts.chosen_timestamp = cd.presenters_date * 1000;
+				
+				DatabaseModel.getInstance().insertATitleSlide(ts);
+				}
+			}
+			
+			private function deleteCustomDecksFromUpdatesData( updatesData:Object ) :void{
+				// do we already have em? (guid)
+				// new - add em
+				// same - add em if timestamp is bigger - else skip
+				
+				if ( updatesData && updatesData.custom_decks_to_delete && updatesData.custom_decks_to_delete.length > 0 )
+				{
+					
+					var cds:Array = updatesData.custom_decks_to_delete as Array;
+					
+					for ( var i : uint = 0 ; i < cds.length; i++ )
+					{
+						var cd:Object = cds[i];
+						// so we want to insert the custom deck if there is not already such a custom deck with the same guid
+						// and that should be handled by having INSERT OR REPLACE and the guid as the primary key
+						trace("updates custom deck guid : " + cd.uuid);
+						
+						
+						var cdsWithSameGuid:Array = dbModel.getWhere(dbModel.customSQLConnection,"presentations","guid","'"+cd.uuid+"'");
+						if ( cdsWithSameGuid && cdsWithSameGuid.length > 0)
+						{
+							//we already have this custom deck		
+							if ( cdsWithSameGuid.length > 1 ) throw new Error("More than one custom presentation in table with same GUID");
+							
+							// now if our timestamp for this guy is the latest we skip everything 
+							var clientTimeStamp:Number = Number(cdsWithSameGuid[0].user_last_saved);
+							var malkasTimeStamp:Number = cd.user_last_saved as Number;
+							if ( malkasTimeStamp >= clientTimeStamp )
+							{
+								// its newer so yes lets do the delete
+								dbModel.updateWhere(dbModel.customSQLConnection, "presentations","is_deleted","true","guid",cd.uuid);
+								// and also delete the title slide !
+								dbModel.deleteCustomPresentationsTitleSlide(cdsWithSameGuid[0].custom_presentation_id);									
+							}else{
+								continue;	// skip this guy its out of date
+							}
+						}
+						
+						
+						
+						
+						
+					}
+					
+				}
+			}
+			
+			//==============================================================================================================================
+			
+			private function getCustomPresentationsBasedOnSectionSlideId(sectionSlideId:uint):Array{
+				// okay this section slide is the section slide id that uniquely identifies a specific slide in a specific core deck
+				// now i need to walk back up and get the section of that specific slide
+				// then i need to get the core presentation id of the specific slide
+				// then i need to get custom presentations based on the core presentation id
+//				var specificSlideInACoreDeckArray:Array = dbModel.getWhere(dbModel.systemSQLConnection,"slides","section_slide_id",sectionSlideId);
+//				if ( specificSlideInACoreDeckArray == null || specificSlideInACoreDeckArray.length < 1 ) return null;
+//				if ( specificSlideInACoreDeckArray.length != 1 ) Alert.show("Non specific section slide id when applying updates data","ERROR");
+//				var specificSlideInACoreDeck:Object = specificSlideInACoreDeckArray[0];
+//				
+//				var sections:Array = dbModel.getWhere(dbModel.systemSQLConnection,"sections","section_id",specificSlideInACoreDeck.section_id);
+//				
+//				if ( sections && sections.length > 0 )
+//				{
+//					for ( var k:uint = 0 ; k < sections.length; k++)
+//					{
+//						var section:Object = sections[k];
+//						var presId:int = section.presentation_id as int;
+//						
+//						var customPresentationsBasedOnCorePresentationId:Array = dbModel.getWhere(dbModel.customSQLConnection,"presentations","presentation_id",presId);
+//						if ( customPresentationsBasedOnCorePresentationId && customPresentationsBasedOnCorePresentationId.length > 0 )
+//						{
+//							return customPresentationsBasedOnCorePresentationId;
+//						}else{
+//							return null;
+//						}
+//					}
+//				}
+//				else
+//				{
+//					Alert.show("No section contains section_slide_id " + sectionSlideId,"ERROR");
+//					throw new Error("No section contains section_slide_id " + sectionSlideId);
+//				}
+//				return null;
+				
+				// NO NO NO the above is all wrong !
+				// just pull the specific section_slide
+				// take its presentation_id
+				// get the custom decks based off that core presentationd and return em
+				var specificSlideInACoreDeckArray:Array = dbModel.getWhere(dbModel.systemSQLConnection,"slides","section_slide_id",sectionSlideId);
+				if ( specificSlideInACoreDeckArray == null || specificSlideInACoreDeckArray.length < 1 ) return null;
+				if ( specificSlideInACoreDeckArray.length != 1 ) Alert.show("Non specific section slide id when applying updates data","ERROR");
+				var specificSlideInACoreDeck:Object = specificSlideInACoreDeckArray[0];
+				
+				var presId:uint = specificSlideInACoreDeck.presentation_id;
+				var customPresentationsBasedOnCorePresentationId:Array = dbModel.getWhere(dbModel.customSQLConnection,"presentations","presentation_id",presId);
+				if ( customPresentationsBasedOnCorePresentationId && customPresentationsBasedOnCorePresentationId.length > 0 )
+				{
+					return customPresentationsBasedOnCorePresentationId;
+				}else{
+					return null;
+				}						
+				
+			}
+			private function deleteFromUpdatesData(updatesData:Object):void{
+				if ( updatesData.Delete != null )
+				{
+					if ( updatesData.Delete.Bundles != null && (updatesData.Delete.Bundles as Array).length > 0 )
+					{
+						updateHaveBeenMade = true;
+						dbModel.deleteBundlesByIds(updatesData.Delete.Bundles as Array);
+					}
+					if ( updatesData.Delete.Slides != null && (updatesData.Delete.Slides as Array).length > 0 )
+					{
+						updateHaveBeenMade = true;
+						dbModel.deleteSlidesAloneByIds(updatesData.Delete.Slides as Array);
+					}
+					if ( updatesData.Delete.Section_Slides != null && (updatesData.Delete.Section_Slides as Array).length > 0 )
+					{
+						// DELETE CUSTOM SLIDES
+						for ( var y:uint = 0; y < (updatesData.Delete.Section_Slides as Array).length; y++)
+						{
+							updateHaveBeenMade = true;
+							
+							var sectionSlideId:uint = updatesData.Delete.Section_Slides[y];
+							
+							//var customPresentationsBasedOnCorePresentationId:Array = getCustomPresentationsBasedOnSectionSlideId(sectionSlideId);
+							// with below change now it deletes optional as well as coreUnwanted/wanted
+							var customPresentationsBasedOnCorePresentationId:Array =  dbModel.getAllPresentationsByDate(dbModel.customSQLConnection);
+							// then i need to delete slides from the custom slides table based on the custom presentation id * the section slide id
+							if ( customPresentationsBasedOnCorePresentationId && customPresentationsBasedOnCorePresentationId.length > 0 )
+							{
+								for ( var z:uint = 0 ; z < customPresentationsBasedOnCorePresentationId.length; z++)
+								{
+									var custPres:Object = customPresentationsBasedOnCorePresentationId[z];
+									var customPresntationId:uint = custPres.custom_presentation_id;
+									var secSlideIdPlusCustPredId:uint = sectionSlideId + (customPresntationId*10000);
+									dbModel.deleteAllWhere(dbModel.customSQLConnection, "slides","sec_slide_id_plus_cust_pres_id",secSlideIdPlusCustPredId);
+								}
+							}	
+							
+							dbModel.deleteAllWhere(dbModel.systemSQLConnection, "optional_slides","section_slide_id",sectionSlideId);
+							
+						}
+						//TODO now i need to delete all the slides from custom presentations that are based on a presentaiton id that i need 
+						// to get by getting the section from the optional sections table and using it to get the optional_deck_id
+						// and using that in that relationship table to get the presentation id
+						
+						// DELETE THE CORE SLIDES
+						for ( var i:uint = 0 ; i < (updatesData.Delete.Section_Slides as Array).length; i++)
+						{
+							updateHaveBeenMade = true;
+							var secSlideId:Object = updatesData.Delete.Section_Slides[i];
+							dbModel.deleteAllWhere(dbModel.systemSQLConnection, "slides","section_slide_id",secSlideId);
+						}
+					}
+					if ( updatesData.Delete.Sections != null && updatesData.Delete.Sections.length > 0 )
+					{
+						for ( var gg:uint = 0 ; gg < updatesData.Delete.Sections.length; gg++)
+						{
+							var sectionId:Object = updatesData.Delete.Sections[gg];
+							//CORE
+							dbModel.deleteAllWhere(dbModel.systemSQLConnection,"sections","section_id",sectionId);
+							//CUSTOM
+						}
+					}
+					if ( updatesData.Delete.Presentations_Optional_Decks != null && (updatesData.Delete.Presentations_Optional_Decks as Array).length > 0 )
+					{
+						updateHaveBeenMade = true;
+						// deletes from both core and custom
+						dbModel.deleteAllPresentationsAndOptionalDecksByIds(updatesData.Delete.Presentations_Optional_Decks);	// which now also deletes from either-Or-Combinations also
+					}
+					
+					if ( updatesData.Delete.Core_Optional_Connection != null && (updatesData.Delete.Core_Optional_Connection as Array).length > 0 )
+					{
+						updateHaveBeenMade = true;
+						for ( var qpr:uint = 0 ; qpr < 	(updatesData.Delete.Core_Optional_Connection as Array).length; qpr++)
+						{
+							var coreOptionalConnection:Object = updatesData.Delete.Core_Optional_Connection[qpr];
+							dbModel.deleteAllWhere(dbModel.systemSQLConnection,"optional_deck_ids_relation_to_presentation_ids","core_optional_connection_id",coreOptionalConnection);
+							dbModel.deleteAllWhere(dbModel.customSQLConnection,"optional_deck_ids_relation_to_presentation_ids","core_optional_connection_id",coreOptionalConnection);
+						}
+					}
+				}
+			}
+			private function createFromUpdatesData(updatesData:Object):void{
+				if ( updatesData.Create != null )
+				{
+					if ( updatesData.Create.Bundles != null && (updatesData.Create.Bundles as Array).length > 0 )
+					{
+						updateHaveBeenMade = true;
+						var bundlesAloneData:Array = updatesData.Create.Bundles as Array;
+						insertBundlesAloneDataIntoTables(bundlesAloneData);
+					}
+					if ( updatesData.Create.Slides != null && (updatesData.Create.Slides as Array).length > 0 )
+					{
+						updateHaveBeenMade = true;
+						insertSlidesAloneDataIntoTables(updatesData.Create.Slides);
+					}
+					if ( updatesData.Create.Section_Slides != null && (updatesData.Create.Section_Slides as Array).length > 0 )
+					{
+						// CORE				
+						// see if this slide exists in slides table and if it does then do an update otherwise do an insert
+						var sectionId:Object;
+						for ( var i:uint = 0; i < (updatesData.Create.Section_Slides as Array).length; i++)
+						{
+							var sectionSlide:Object = updatesData.Create.Section_Slides[i];
+							var coreResults:Array = dbModel.getWhere(dbModel.systemSQLConnection,"slides","section_slide_id",sectionSlide.section_slide_id);
+							if ( coreResults && coreResults.length > 0 )
+							{
+								//update
+								if ( coreResults.length > 1 )
+								{
+									Alert.show("More than one slide with unique id","ERROR");
+									throw new Error("more than one slide with unique id");									
+								}
+								var secSlideToInsert:Object = coreResults[0];
+								updateHaveBeenMade = true;
+								dbModel.reInsertASingleSlideIntoSlidesTableBySecSlideId(secSlideToInsert, dbModel.systemSQLConnection);								
+								// and insert into all the custom pres too
+							}
+							else
+							{
+								sectionId = sectionSlide.section_id;
+								var sections:Array = dbModel.getWhere(dbModel.systemSQLConnection,"sections","section_id",sectionId);
+								// ah - it could be an optional slide
+								if ( sections && sections.length > 0 )
+								{
+									for ( var k:uint = 0 ; k < sections.length; k++)
+									{
+										var section:Object = sections[k];
+										var presId:int = section.presentation_id as int;
+										var slidesArray:Array = new Array();
+										slidesArray.push(sectionSlide);
+										// core
+										updateHaveBeenMade = true;
+										dbModel.insertAnArrayOfSlidesIntoCoreSlidesTable(slidesArray, sectionId, presId);
+										//TODO // and do it for custom
+										
+										// custom
+										var customPresentationsBasedOnCorePresentationId:Array = dbModel.getWhere(dbModel.customSQLConnection,"presentations","presentation_id",presId);
+										if ( customPresentationsBasedOnCorePresentationId && customPresentationsBasedOnCorePresentationId.length > 0 )
+										{
+											for ( var z:uint = 0 ; z < customPresentationsBasedOnCorePresentationId.length; z++)
+											{
+												var custPres:Object = customPresentationsBasedOnCorePresentationId[z];
+												var customPresntationId:uint = custPres.custom_presentation_id;
+												// TODO do we want to see new slides in the custom slides table? YES !!
+												// AND we want to see em deleted !! well we got that done already :)
+												sectionSlide.sec_slide_id_plus_cust_pres_id = sectionSlide.section_slide_id + (customPresntationId*10000);
+												dbModel.insertAnArrayOfSlidesIntoCustomSlidesTable(slidesArray, sectionId, customPresntationId);
+												
+												if ( custPres.sequence_locked )/*September 3rd, 2013 added. Ticket http://jira.visual-a.com/browse/KEYPOINT-229
+													To prevent the loop hole of adding one slide
+													at the very end where the sequence of 
+													the deck does not change. All custom sequences are
+													set to zero.*/
+												{
+													// set all the slides in the presentation to have customSequence = zero
+													dbModel.updateWhere(dbModel.customSQLConnection, "slides", "customSequence","0","presentation_id",customPresntationId );
+												}
+											}
+										}
+									}
+								}else{
+									// its not a core slide - is it an optional?
+									var optSections:Array = dbModel.getWhere(dbModel.systemSQLConnection,"optional_sections","section_id",sectionId);
+									if ( optSections && optSections.length > 0 )
+									{
+										trace("I GOT SECTIONS");
+										for ( var kf:uint = 0 ; kf < optSections.length; kf++)
+										{
+											var optSection:Object = optSections[kf];
+											var optionalDeckId:int = optSection.optional_deck_id as int;
+											// core
+											updateHaveBeenMade = true;
+											dbModel.insertASingleSlideIntoOptionalSlidesTable(sectionSlide, sectionId, optionalDeckId);
+											// custom
+											var optionalDeckAssociationsWithThisOptionalDeckId:Array = dbModel.getWhere(dbModel.systemSQLConnection,"optional_deck_ids_relation_to_presentation_ids","optional_deck_id",optionalDeckId);
+											if ( optionalDeckAssociationsWithThisOptionalDeckId && optionalDeckAssociationsWithThisOptionalDeckId.length > 0)
+											{
+												for ( var prei:uint = 0 ; prei< optionalDeckAssociationsWithThisOptionalDeckId.length; prei++)
+												{
+													var optionalDeckAssoc:Object = optionalDeckAssociationsWithThisOptionalDeckId[prei];
+													var presentationId:uint = optionalDeckAssoc.presentation_id;
+													// now we want to insert this slide into all the custom presentations based on this presentaiton id
+													// populating the slide with custom_sec_slide_id plus whatever
+													// and unwanted = 1;
+													var customPresentationsBasedOnCorePresentationIdB:Array = dbModel.getWhere(dbModel.customSQLConnection,"presentations","presentation_id",presentationId);
+													if ( customPresentationsBasedOnCorePresentationIdB && customPresentationsBasedOnCorePresentationIdB.length > 0 )
+													{
+														for ( var ztr:uint = 0 ; ztr < customPresentationsBasedOnCorePresentationIdB.length; ztr++)
+														{
+															var custPresB:Object = customPresentationsBasedOnCorePresentationIdB[ztr];
+															var customPresntationIdB:uint = custPresB.custom_presentation_id;
+															var slidesArrayB:Array = new Array();
+															slidesArrayB.push(sectionSlide);
+															sectionSlide.optional_deck_id = optionalDeckAssoc.optional_deck_id;
+															sectionSlide.unwanted = 1;
+															sectionSlide.sec_slide_id_plus_cust_pres_id = sectionSlide.section_slide_id + (customPresntationIdB*10000);
+															dbModel.insertAnArrayOfSlidesIntoCustomSlidesTable(slidesArrayB, sectionId, customPresntationIdB);
+														}
+													}
+												}
+											}
+										}									
+									}	
+								}
+								
+								
+							}
+						}
+					}
+					if ( updatesData.Create.Presentations != null && (updatesData.Create.Presentations as Array).length > 0 )
+					{	
+						updateHaveBeenMade = true;
+						var presentationsData:Object = new Object();
+						presentationsData.Presentations = updatesData.Create.Presentations;						
+						insertPresenationDataIntoTables(presentationsData);
+						insertOptionalDecksDataIntoTables(presentationsData);
+						insertOptionalDecksDataIntoTables(updatesData);
+						for ( var qwas:uint = 0; qwas < (updatesData.Create.Presentations as Array).length; qwas++)
+						{
+							var pres:Object = updatesData.Create.Presentations[qwas];
+							if ( pres.optional_decks && (pres.optional_decks as Array).length > 0 )
+							{
+								dbModel.insertCoreOptionalConnectionsArrayFromInsidePresentations(pres.optional_decks as Array,pres.id as uint);
+							}
+						}
+						
+						// V6
+						SlidesUtilities.preProcessCoreDecksForEitherOrBundleRule(presentationsData);
+						
+					}
+					
+					if ( updatesData.Create.Core_Optional_Connection != null && (updatesData.Create.Core_Optional_Connection as Array).length > 0 )
+					{
+						//for ( var ttjj:uint =0 ; ttjj < (updatesData.Create.Core_Optional_Connection as Array).length; ttjj++)
+						//{
+						//var coreOptConnect:Object = updatesData.Create.Core_Optional_Connection[ttjj];
+						dbModel.insertCoreOptionalConnectionsArray(updatesData.Create.Core_Optional_Connection as Array);
+						
+						/*
+						optional_deck_ids_relation_to_presentation_ids
+						=====================================================================================================
+						core_optional_connection_id				-- unique number from Malka
+						optional_deck_id
+						presentation_id  */
+						//}
+					}
+					
+					
+				}		
+			}
+			private function updateFromUpdatesData(updatesData:Object):void{
+				var i:uint;
+				var secSlideUpdateCounter:uint;
+				var sectionSlideId:Object;
+				var customPresentationsBasedOnCorePresentationId:Array;
+				var custPres:Object;
+				var customPresntationId:uint;
+				var secSlideIdPlusCustPresId:uint;
+				
+				if ( updatesData && updatesData.Update)
+				{
+					if ( updatesData.Update.Presentations && ( updatesData.Update.Presentations as Array).length > 0)
+					{
+						for ( i=0; i < ( updatesData.Update.Presentations as Array).length; i++)
+						{
+							var presUpdate:Object = updatesData.Update.Presentations[i];
+							if ( presUpdate.hasOwnProperty("deck_name") )
+							{
+								updateHaveBeenMade = true;
+								dbModel.updateWhere(dbModel.systemSQLConnection, "presentations", "presentation_name",presUpdate.deck_name,"presentation_id",presUpdate.id );
+							}
+							if ( presUpdate.hasOwnProperty("printable_pdf") )
+							{
+								updateHaveBeenMade = true;
+								dbModel.updateWhere(dbModel.systemSQLConnection, "presentations", "printable_pdf",presUpdate.printable_pdf,"presentation_id",presUpdate.id );
+								dbModel.updatedPDFMastersMap[presUpdate.id] = "wagwan!";
+							}
+							if ( presUpdate.hasOwnProperty("resources_title") )
+							{
+								updateHaveBeenMade = true;
+								dbModel.addResourcesTitleAndResourcesOrderColumnsToPresentationsTableIfTheyDontAlreadyExist( dbModel.systemSQLConnection );
+								dbModel.updateWhere(dbModel.systemSQLConnection, "presentations", "resources_title",presUpdate.resources_title,"presentation_id",presUpdate.id );
+							}
+							if ( presUpdate.hasOwnProperty("resources_order") )
+							{
+								updateHaveBeenMade = true;
+								dbModel.addResourcesTitleAndResourcesOrderColumnsToPresentationsTableIfTheyDontAlreadyExist( dbModel.systemSQLConnection );
+								dbModel.updateWhere(dbModel.systemSQLConnection, "presentations", "resources_order",presUpdate.resources_order,"presentation_id",presUpdate.id );
+							}
+						}
+					}
+					if ( updatesData.Update.Optional_Decks && ( updatesData.Update.Optional_Decks as Array).length > 0)
+					{
+						for ( i=0; i < ( updatesData.Update.Optional_Decks as Array).length; i++)
+						{
+							var optUpdate:Object = updatesData.Update.Optional_Decks[i];
+							if ( optUpdate.hasOwnProperty("deck_name") )
+							{
+								updateHaveBeenMade = true;
+								dbModel.updateWhere(dbModel.systemSQLConnection, "optional_decks", "deck_name",optUpdate.deck_name,"optional_deck_id",optUpdate.id );
+							}
+						}
+					}
+					if ( updatesData.Update.Slides && ( updatesData.Update.Slides as Array).length > 0 )
+					{
+						for ( i=0; i < ( updatesData.Update.Slides as Array).length; i++)
+						{
+							var slideAloneUpdate:Object = updatesData.Update.Slides[i];
+							if ( slideAloneUpdate.hasOwnProperty("notes"))
+							{
+								updateHaveBeenMade = true;
+								var slideNotes:String = slideAloneUpdate.notes;								
+								if ( slideNotes )
+								{
+									slideNotes = slideNotes.split("'").join("''");
+								}else{
+									slideNotes = "Review as stated.";
+								}
+								dbModel.updateWhere(dbModel.systemSQLConnection, "slides_alone", "notes",slideNotes,"slide_id",slideAloneUpdate.id );			
+							}
+							if ( slideAloneUpdate.hasOwnProperty("printable_pdf"))
+							{
+								updateHaveBeenMade = true;
+								
+								dbModel.updateWhere(dbModel.systemSQLConnection, "slides_alone", "printable_pdf",slideAloneUpdate.printable_pdf,"slide_id",slideAloneUpdate.id );
+								dbModel.updatedPDFSlidesMap[slideAloneUpdate.id] = "yadunno!";
+							}
+						}
+					}
+					if ( updatesData.Update.Section_Slides && ( updatesData.Update.Section_Slides as Array).length > 0 )
+					{
+						for ( secSlideUpdateCounter=0; secSlideUpdateCounter < ( updatesData.Update.Section_Slides as Array).length; secSlideUpdateCounter++)
+						{
+							var slideUpdate:Object = updatesData.Update.Section_Slides[secSlideUpdateCounter];
+							//							if ( slideUpdate.hasOwnProperty("notes"))
+							//							{
+							//								updateHaveBeenMade = true;
+							//								dbModel.updateWhere(dbModel.systemSQLConnection, "slides_alone", "notes",slideUpdate.notes,"slide_id",slideUpdate.id );			
+							//							}
+							if ( slideUpdate.hasOwnProperty("id") && slideUpdate.hasOwnProperty("slide_id") )
+							{
+								// REPLACE SLIDES 
+								updateHaveBeenMade = true;
+								sectionSlideId = slideUpdate.id;
+								dbModel.updateWhere(dbModel.systemSQLConnection, "slides", "slide_id",slideUpdate.slide_id,"section_slide_id",sectionSlideId );
+								customPresentationsBasedOnCorePresentationId = getCustomPresentationsBasedOnSectionSlideId(sectionSlideId as uint);
+								if ( customPresentationsBasedOnCorePresentationId && customPresentationsBasedOnCorePresentationId.length > 0 )
+								{
+									for ( i = 0 ; i < customPresentationsBasedOnCorePresentationId.length; i++)
+									{
+										custPres = customPresentationsBasedOnCorePresentationId[i];
+										customPresntationId = custPres.custom_presentation_id;
+										secSlideIdPlusCustPresId = sectionSlideId + (customPresntationId*10000);
+										dbModel.updateWhere(dbModel.customSQLConnection, "slides", "slide_id",slideUpdate.slide_id,"sec_slide_id_plus_cust_pres_id",secSlideIdPlusCustPresId );			
+									}
+								}
+							}
+							if ( slideUpdate.hasOwnProperty("id") && slideUpdate.hasOwnProperty("sequence") )
+							{
+								// CHANGE SEQUENCE
+								updateHaveBeenMade = true;
+								sectionSlideId = slideUpdate.id;
+								dbModel.updateWhere(dbModel.systemSQLConnection, "slides", "sequence",slideUpdate.sequence,"section_slide_id",sectionSlideId );
+								customPresentationsBasedOnCorePresentationId = getCustomPresentationsBasedOnSectionSlideId(sectionSlideId as uint);
+								if ( customPresentationsBasedOnCorePresentationId && customPresentationsBasedOnCorePresentationId.length > 0 )
+								{
+									for ( i = 0 ; i < customPresentationsBasedOnCorePresentationId.length; i++)
+									{
+										custPres = customPresentationsBasedOnCorePresentationId[i];
+										customPresntationId = custPres.custom_presentation_id;
+										secSlideIdPlusCustPresId = sectionSlideId + (customPresntationId*10000);
+										
+										// so if the customPresenation is a sequence locked presentation then it should receive all sequence updates and customSequence should be zero ( not populated ) for all of its slides
+										// If it is a sequence locked deck but has a non sequenced lock bundle then the sequence should reset itself back to admin sequence
+										// so we can take a short cut and if the deck is sequenced locked then just set the customSequence number of all of its slides to zero
+										// because if it doesn't contain a non sequenced locked bundle then it should never have customSequence number
+										// and if it does contain a non sequenced locked bundle then it is supposed to reset anyway so still make all its slides have customSequence = zero.
+										
+										
+										// set the sequence number based on the update as we usually do
+										// V6  dbModel.updateWhere(dbModel.customSQLConnection, "slides", "sequence",slideUpdate.sequence,"sec_slide_id_plus_cust_pres_id",secSlideIdPlusCustPresId );
+										
+										if ( custPres.sequence_locked )
+										{
+											// set all the slides in the presentation to have customSequence = zero
+											dbModel.updateWhere(dbModel.customSQLConnection, "slides", "customSequence","0","presentation_id",customPresntationId );
+										}
+									}
+								} 
+							}// end if for changing the sequence
+							
+							
+							
+							
+							if ( slideUpdate.hasOwnProperty("id") && slideUpdate.hasOwnProperty("mandatory") )
+							{
+								// CHANGE MANDATORY 
+								updateHaveBeenMade = true;
+								sectionSlideId = slideUpdate.id;
+								dbModel.updateWhere(dbModel.systemSQLConnection, "slides", "is_mandatory",slideUpdate.mandatory,"section_slide_id",sectionSlideId );
+								
+								customPresentationsBasedOnCorePresentationId = getCustomPresentationsBasedOnSectionSlideId(sectionSlideId as uint);
+								if ( customPresentationsBasedOnCorePresentationId && customPresentationsBasedOnCorePresentationId.length > 0 )
+								{
+									for ( i = 0 ; i < customPresentationsBasedOnCorePresentationId.length; i++)
+									{
+										custPres = customPresentationsBasedOnCorePresentationId[i];
+										customPresntationId = custPres.custom_presentation_id;
+										secSlideIdPlusCustPresId = sectionSlideId + (customPresntationId*10000);
+										dbModel.updateWhere(dbModel.customSQLConnection, "slides", "is_mandatory",slideUpdate.mandatory,"sec_slide_id_plus_cust_pres_id",secSlideIdPlusCustPresId );			
+										if ( slideUpdate.mandatory )
+										{
+											dbModel.updateWhere(dbModel.customSQLConnection, "slides", "unwanted","false","sec_slide_id_plus_cust_pres_id",secSlideIdPlusCustPresId );	
+										}
+									}
+								}
+							} 
+						}
+					}
+				}
+			}
+			// UPDATE RESOURCES
+			private function updateResourcesFromUpdatesData( updatesData:Object ):void{
+				
+				var i:uint;
+				var resourceId:int;
+				var resourceUpdateObject:Object;
+				
+				if ( ! updatesData ) return;
+				
+				if ( updatesData.Create != null )
+				{
+					if ( updatesData.Create.Resources != null )
+					{
+						updateHaveBeenMade = true;
+						
+						CreateDatabaseCommand.checkIfResourcesDataTableExistsAndCreateItIfItDoesnt();
+						
+						if ( updatesData.Create.Resources.by_brand != null && updatesData.Create.Resources.by_brand.length > 0 )
+						{
+							dbModel.insertAnArrayOfResourcesByBrandOrDeck( true, updatesData.Create.Resources.by_brand );	
+						}
+						if ( updatesData.Create.Resources.by_deck != null && updatesData.Create.Resources.by_deck.length > 0 )
+						{
+							dbModel.insertAnArrayOfResourcesByBrandOrDeck( false, updatesData.Create.Resources.by_deck );	
+						} 
+					}
+				}		
+				
+				if ( updatesData.Delete != null )
+				{
+					if ( updatesData.Delete.Resources != null && updatesData.Delete.Resources.length > 0 )
+					{
+						updateHaveBeenMade = true;
+						for ( i = 0 ; i < updatesData.Delete.Resources.length; i++)
+						{
+							resourceId = updatesData.Delete.Resources[i];
+							dbModel.deleteAllWhere(dbModel.systemSQLConnection, "resources", "id", resourceId);
+						}
+					}
+				}
+				
+				if ( updatesData.Update != null )
+				{
+					if ( updatesData.Update.Resources && ( updatesData.Update.Resources as Array).length > 0)
+					{
+						for ( i = 0 ; i < updatesData.Update.Resources.length; i++)
+						{
+							resourceUpdateObject = updatesData.Update.Resources[i];
+							if ( resourceUpdateObject.hasOwnProperty("id") == false )
+							{
+								Alert.show("ERROR : JSON has been given attempting to update resources but no id property is found on the update data object", "Alert");
+								return;
+							}
+							updateHaveBeenMade = true;
+							if ( resourceUpdateObject.hasOwnProperty("url") )
+							{
+								dbModel.updateWhere(dbModel.systemSQLConnection, "resources", "url", resourceUpdateObject.url, "id", resourceUpdateObject.id );
+								dbModel.mustUpdateResourcePDFsMap[ resourceUpdateObject.id ] = "updateThisOne!";
+							}
+							if ( resourceUpdateObject.hasOwnProperty("html_title") )
+							{
+								dbModel.updateWhere(dbModel.systemSQLConnection, "resources", "html_title", resourceUpdateObject.html_title, "id", resourceUpdateObject.id );
+							}
+							if ( resourceUpdateObject.hasOwnProperty("stripped_title") )
+							{
+								dbModel.updateWhere(dbModel.systemSQLConnection, "resources", "stripped_title", resourceUpdateObject.stripped_title, "id", resourceUpdateObject.id );
+							}
+							if ( resourceUpdateObject.hasOwnProperty("resources_title") )
+							{
+								dbModel.updateWhere(dbModel.systemSQLConnection, "resources", "resources_title", resourceUpdateObject.resources_title, "id", resourceUpdateObject.id );
+							}
+							if ( resourceUpdateObject.hasOwnProperty("order") )
+							{
+								dbModel.updateWhere(dbModel.systemSQLConnection, "resources", "refNumber", resourceUpdateObject.order, "id", resourceUpdateObject.id );
+							}
+						}
+					}
+				}
+			}
+			
+			// UPDATE EXTERNAL APPS
+			private function updateExternalAppsFromUpdatesData( updatesData:Object ):void{
+				
+				var i:uint;
+				var appName:String = "";
+				
+				if ( ! updatesData ) return;
+				
+				if ( updatesData.Create != null )
+				{
+					if ( updatesData.Create["External Apps"] != null )
+					{
+						updateHaveBeenMade = true;
+						CreateDatabaseCommand.createExternalAppsDataTableIfItDoesntAlreadyExist();
+						
+						if ( updatesData.Create["External Apps"] != null && updatesData.Create["External Apps"].length > 0 )
+						{
+							for ( i = 0 ; i < updatesData.Create["External Apps"].length; i++)
+							{
+								appName = updatesData.Create["External Apps"][i];
+								dbModel.insertAnExternalAppIntoExternalAppsTable( appName );
+							}
+						}
+					}
+				}		
+				
+				if ( updatesData.Delete != null )
+				{
+					if ( updatesData.Delete["External Apps"] != null && updatesData.Delete["External Apps"].length > 0 )
+					{
+						updateHaveBeenMade = true;
+						for ( i = 0 ; i < updatesData.Delete["External Apps"].length; i++)
+						{
+							appName = updatesData.Delete["External Apps"][i];
+							appName = appName.split(" ").join("");
+							// for some reason this doesn't work ?? dbModel.deleteAllWhere(dbModel.systemSQLConnection, "external_apps", "app_name", appName);
+							// instead we will just drop the table for now as there should only be one external app in keypoint for now
+							ClearDatabaseCommand.dropExternalAppsTable();
+						}
+					}
+				}
+				// there should be no updates at this point
+//				if ( updatesData.Update != null )
+//				{
+//					if ( updatesData.Update.Resources && ( updatesData.Update.Resources as Array).length > 0)
+//					{
+//						for ( i = 0 ; i < updatesData.Update.Resources.length; i++)
+//						{
+//							resourceUpdateObject = updatesData.Update.Resources[i];
+//							if ( resourceUpdateObject.hasOwnProperty("id") == false )
+//							{
+//								Alert.show("ERROR : JSON has been given attempting to update resources but no id property is found on the update data object", "Alert");
+//								return;
+//							}
+//							updateHaveBeenMade = true;
+//							if ( resourceUpdateObject.hasOwnProperty("url") )
+//							{
+//								dbModel.updateWhere(dbModel.systemSQLConnection, "resources", "url", resourceUpdateObject.url, "id", resourceUpdateObject.id );
+//								dbModel.mustUpdateResourcePDFsMap[ resourceUpdateObject.id ] = "updateThisOne!";
+//							}
+//							if ( resourceUpdateObject.hasOwnProperty("html_title") )
+//							{
+//								dbModel.updateWhere(dbModel.systemSQLConnection, "resources", "html_title", resourceUpdateObject.html_title, "id", resourceUpdateObject.id );
+//							}
+//							if ( resourceUpdateObject.hasOwnProperty("stripped_title") )
+//							{
+//								dbModel.updateWhere(dbModel.systemSQLConnection, "resources", "stripped_title", resourceUpdateObject.stripped_title, "id", resourceUpdateObject.id );
+//							}
+//							if ( resourceUpdateObject.hasOwnProperty("resources_title") )
+//							{
+//								dbModel.updateWhere(dbModel.systemSQLConnection, "resources", "resources_title", resourceUpdateObject.resources_title, "id", resourceUpdateObject.id );
+//							}
+//							if ( resourceUpdateObject.hasOwnProperty("order") )
+//							{
+//								dbModel.updateWhere(dbModel.systemSQLConnection, "resources", "refNumber", resourceUpdateObject.order, "id", resourceUpdateObject.id );
+//							}
+//						}
+//					}
+//				}
+			}
+			
+			//============================================================================================
+			// INSERT NEW USER DATA 
+			//============================================================================================
+			private function insertSlidesAloneDataIntoTables(slidesAloneData:Object):void{
+				dbModel.insertSlidesAloneData( slidesAloneData, dbModel.systemSQLConnection );
+				//	dbModel.insertSlidesAloneData( slidesAloneData, dbModel.customSQLConnection );
+			}
+			private function insertBundlesAloneDataIntoTables(bundlesAloneData:Array):void{
+				dbModel.insertBundlesAloneData( bundlesAloneData, dbModel.systemSQLConnection ); 
+				dbModel.insertBundlesAloneData( bundlesAloneData, dbModel.customSQLConnection );
+				// V6 POPUPS modalPopupAlert.bodyTextArea.text = "Inserting presentations data";
+			}
+			private function insertPresenationDataIntoTables(presentationsData:Object):void{
+				dbModel.insertPresentationsData( presentationsData, dbModel.systemSQLConnection );
+				
+				// V6 POPUPS modalPopupAlert.bodyTextArea.text = "Inserting optional decks data";
+				insertMappingsBetweenPresentationsAndOptionalDecks(presentationsData);
+				
+				//V6
+				dbModel.insertEitherOrCombinationsFromPresentationsData( presentationsData );
+			}
+			// V6
+			//---------------------------------------------------------------------------------
+			private function insertCustomDecksDataIntoTables(presentationsData:Object):void{
+				
+				addCustomDecksFromUpdatesData(presentationsData);	// could it all be so simple babe?
+				
+			}
+			
+			//---------------------------------------------------------------------------------
+			
+			private function insertMappingsBetweenPresentationsAndOptionalDecks(presentationsData:Object):void{
+				var i:uint;
+				if ( presentationsData.Presentations && presentationsData.Presentations.length > 0 )
+				{
+					for ( i = 0 ; i < presentationsData.Presentations.length; i++)
+					{
+						var presentation:Object = presentationsData.Presentations[i];
+						if ( presentation.hasOwnProperty("optional_decks") && presentation.optional_decks != null && presentation.optional_decks.length > 0 )
+						{
+							dbModel.insertRelationalMappingsBetweenPresentationsAndOptionalDecks(presentation.optional_decks as Array,presentation.id as int);
+						}
+					}
+				}
+			}
+			private function insertOptionalDecksDataIntoTables(presentationsData:Object):void{
+				if ( presentationsData.Optional_Decks != null && presentationsData.Optional_Decks.length > 0 )
+				{
+					dbModel.insertAnArrayOfOptionalDecks(presentationsData.Optional_Decks,dbModel.systemSQLConnection);
+					
+					/*
+					optional_deck_ids_relation_to_presentation_ids
+					=====================================================================================================
+					core_optional_connection_id				-- unique number from Malka
+					optional_deck_id
+					presentation_id  */
+				}
+				if ( presentationsData.Create && presentationsData.Create.Optional_Decks != null && presentationsData.Create.Optional_Decks.length > 0 )
+				{
+					dbModel.insertAnArrayOfOptionalDecks(presentationsData.Create.Optional_Decks,dbModel.systemSQLConnection);
+					
+					/*
+					optional_deck_ids_relation_to_presentation_ids
+					=====================================================================================================
+					core_optional_connection_id				-- unique number from Malka
+					optional_deck_id
+					presentation_id  */
+				}
+				
+				if ( presentationsData.Presentations && (presentationsData.Presentations as Array).length > 0 )
+				{
+					var coreOptionalConnectionArray:Array = new Array();
+					for ( var i:uint = 0; i < (presentationsData.Presentations as Array).length; i++)
+					{
+						var presentation:Object = presentationsData.Presentations[i];	
+						if ( presentation.optional_decks && (presentation.optional_decks as Array).length > 0 )
+						{
+							for ( var j:uint = 0 ; j < (presentation.optional_decks as Array).length; j++)
+							{
+								var optionalDeck:Object = presentation.optional_decks[j];
+								optionalDeck.core_deck_id = presentation.id;
+								coreOptionalConnectionArray.push(optionalDeck);
+							}
+						}
+					}
+					dbModel.insertCoreOptionalConnectionsArray(coreOptionalConnectionArray as Array);
+				}
+				var ssv:SlideSystemView = this.parent as SlideSystemView;
+				ssv.customSpinner.closeSpinner();
+				// V6 POPUPS modalPopupAlert.close();
+			}
+			
+			private function insertResourcesDataIntoTables(presentationsData:Object):void{
+				if ( presentationsData.Resources != null  )
+				{
+					CreateDatabaseCommand.checkIfResourcesDataTableExistsAndCreateItIfItDoesnt();
+					
+					if ( presentationsData.Resources.by_brand != null && presentationsData.Resources.by_brand.length > 0 )
+					{
+						dbModel.insertAnArrayOfResourcesByBrandOrDeck( true, presentationsData.Resources.by_brand);	
+					}
+					if ( presentationsData.Resources.by_deck != null && presentationsData.Resources.by_deck.length > 0 )
+					{
+						dbModel.insertAnArrayOfResourcesByBrandOrDeck( false, presentationsData.Resources.by_deck);	
+					}
+				}
+				var ssv:SlideSystemView = this.parent as SlideSystemView;
+				ssv.customSpinner.closeSpinner();
+				// V6 POPUPS modalPopupAlert.close();
+			}
+			
+			private function insertExternalAppsDataIntoTables(presentationsData:Object):void{
+				if ( presentationsData.hasOwnProperty("External Apps") && presentationsData["External Apps"] != null  )
+				{
+					CreateDatabaseCommand.createExternalAppsDataTableIfItDoesntAlreadyExist();
+					var appName:String = "Clinical Pathways";
+					if ( presentationsData["External Apps"] is Array && ( presentationsData["External Apps"] as Array).length > 0 )
+					{
+						var a:Array = presentationsData["External Apps"] as Array;
+						appName = a[0];
+					}
+					dbModel.insertAnExternalAppIntoExternalAppsTable(appName);
+				}
+				var ssv:SlideSystemView = this.parent as SlideSystemView;
+				ssv.customSpinner.closeSpinner();
+				// V6 POPUPS modalPopupAlert.close();
+			}
+			
+			
+			//============================================================================================
+			// LOAD SLIDES AND WRITE TO DISK
+			//============================================================================================
+			
+			private function loadTheSlidesAndWriteThemToDisk():void{
+				openDownloadingSlidesToDiskAlert();
+				
+				var fileWriter:DownloadFilesAndWriteToDiskCommand = new DownloadFilesAndWriteToDiskCommand(downloadingTheSlidesToDiskAlert);
+				fileWriter.addEventListener(SlidesEvent.FINISHED_WRITING_FILES_TO_DISK, onFinishedDownloadingTheSlidesAndWritingToDisk);
+				fileWriter.addEventListener(SlidesEvent.DOWNLOAD_TIMEOUT, onDownloadTimeout);
+				fileWriter.downloadAllFiles(loginPanel.new_user_logged_in);
+				fileWriter.downloadMasterPDF();
+				fileWriter.downloadAllResourcePDFs();
+				// note : the FINISHED_WRITING_FILES_TO_DISK event will only file when all files, masters and resources have finished downloading
+				
+			}
+			private function onDownloadTimeout(se:SlidesEvent):void{
+				if ( downloadingTheSlidesToDiskAlert) downloadingTheSlidesToDiskAlert.close();
+				var s : SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				s.navigateToPage = SlidesEvent.LOGOUT
+				dispatchEvent(s);
+			}
+			private function onFinishedDownloadingTheSlidesAndWritingToDisk(se:SlidesEvent):void{
+				
+				if ( downloadingTheSlidesToDiskAlert) 
+				{
+					if ( forcedUpdatesMessageTimer && forcedUpdatesMessageTimer.running )
+					{
+						// we want to make sure this popup stays open for 3 seconds so user sees it
+						forcedUpdatesMessageTimer.addEventListener(TimerEvent.TIMER_COMPLETE, function (te:TimerEvent) :void{
+							downloadingTheSlidesToDiskAlert.close();
+						});
+					}else{
+						downloadingTheSlidesToDiskAlert.close();	
+					}
+					
+				}
+				//============================================================================================
+				// INSERT USER INTO DATA TABLES
+				//============================================================================================
+				var tstamp:String = dbModel.logIinTimeUnixTimeStamp;
+				dbModel.insertUserIntoUsersTableWhenAllDownloadsAreComplete(loginPanel.userName, loginPanel.user_hash, tstamp, loginPanel.usersBrands);//, loginPanel.workOfflineCheckBox.selected);
+				gotoBrandsPage();	
+				
+			}
+			
+			//==========================================================================================
+			// RESET AFTER LOGOUT
+			//==========================================================================================
+			
+			public function reset():void{
+				loginPanel.usersBrands = new Array();
+				//selectedBrandId = 0;
+				selectedBrandObject = null;
+				loginPanel.visible = true;
+				nnpeBrandImg.visible = false;
+				excelBrandImg.visible = false;
+				pleaseSelectLabel.visible = false;
+			}
+			//==========================================================================================
+			// BRANDING PAGE
+			//==========================================================================================
+			//Note changed from private to public function
+			public function gotoBrandsPage(e:Event = null):void{
+				
+				softwareVerionsUpgradeAvailableVBox.visible = false;
+				
+				if ( downloadingTheSlidesToDiskAlert != null ) 
+				{
+					if ( forcedUpdatesMessageTimer && forcedUpdatesMessageTimer.running )
+					{
+						//downloadingTheSlidesToDiskAlert.close();
+					}else{
+						downloadingTheSlidesToDiskAlert.close();
+					}
+				}
+				
+				var brands:Array = loginPanel.usersBrands;
+				if ( !brands || brands.length < 1 )
+				{
+					Alert.show(DatabaseModel.MESSAGE_40,"Attention");
+					
+				}
+				else if ( brands.length == 1 )
+				{	dbModel._moreThanOneBrand = false;
+					//model.setBrandBoolean(false); //MVC version test
+					//	model.getBrandBoolean = false
+					skipToMainApp(brands[0]);
+					
+				}
+				else if ( brands.length == 2)
+				{
+					dbModel._moreThanOneBrand = true;
+					//model.setBrandBoolean(true); //MVC version test
+					//	model.getBrandBoolean = true;
+					gotoBrandsSelectionPage();
+				}else{
+					
+					throw new Error("wrong number of user brands");
+				}
+				
+				//trace("gotoBrandPage dbModel._moreThanOneBrand "+dbModel._moreThanOneBrand);
+			}
+			
+			public function gotoBrandsSelectionPage():void{
+				
+				softwareVerionsUpgradeAvailableVBox.visible = false;
+				loginPanel.visible = false;
+				nnpeBrandImg.visible = true;
+				excelBrandImg.visible = true;
+				pleaseSelectLabel.visible = true;
+			}
+			
+			private function skipToMainApp(brandObject:Object):void{
+				trace("only one brand");
+				this.selectedBrandObject = brandObject;
+				goToMainApp();
+			}
+			
+			private function goToMainApp(offline:Boolean = false):void{
+				//if ( updateHaveBeenMade )
+				if ( updatesWereApplied && hadCoreUpdates )
+				{
+					// code change as approved  by Tom Iannucci 6/25/2013 - they dont want to show the
+					// updates alert popup 
+					updateHaveBeenMade = false;
+					hadCoreUpdates = false;
+					updatesWereApplied = false;
+					
+					// lol - V6 they DO want the popup back in
+					
+					// actually no they dont !
+					/*
+					openModalAlertWindow();
+					modalPopupAlert.bodyTextArea.text = DatabaseModel.UPDATE_MESSAGE;
+					modalPopupAlert.setWidthAndHeight(400,160);
+					modalPopupAlert.okButton.visible = true;	
+					updateHaveBeenMade = false;
+					*/
+				}
+				var se:SlidesEvent = new SlidesEvent(SlidesEvent.UPDATES_AND_DOWNLOADS_COMPLETE);
+				se.offlineLogIn = offline;
+				dispatchEvent(se);
+			}
+			
+			//==========================================================================================			
+			// HANDLERS
+			//==========================================================================================
+			protected function excelBrandImg_clickHandler(event:MouseEvent):void
+			{
+				for ( var i:uint = 0 ; i < loginPanel.usersBrands.length; i++)
+				{
+					var brand:Object = loginPanel.usersBrands[i];
+					if ( brand.name == "excel")
+					{
+						this.selectedBrandObject = brand;
+						break;
+					}
+				}
+				goToMainApp();
+			}
+			protected function nnpeBrandImg_clickHandler(event:MouseEvent):void
+			{
+				for ( var i:uint = 0 ; i < loginPanel.usersBrands.length; i++)
+				{
+					var brand:Object = loginPanel.usersBrands[i];
+					if ( brand.name == "nnpe")
+					{
+						this.selectedBrandObject = brand;
+						break;
+					}
+				}
+				goToMainApp();				
+			}
+			//==========================================================================================			
+			// POPUP ALERTS
+			//==========================================================================================
+			
+			private function openModalAlertWindow():void{
+				
+				
+				modalPopupAlert = PopupAlert(PopUpManager.createPopUp(parent,PopupAlert,true));
+				modalPopupAlert.setWidthAndHeight(300,120);
+				modalPopupAlert.buttonsHGroup.visible = false;
+				//modalPopupAlert.titleLabel.text = "Alert";
+				//modalPopupAlert.titleLabel.visible = false;
+				modalPopupAlert.bodyTextArea.text = DatabaseModel.MESSAGE_35; // Downloading slide library		
+				PopUpManager.centerPopUp(modalPopupAlert);
+			}
+			private function openDownloadingSlidesToDiskAlert():void{
+				downloadingTheSlidesToDiskAlert = PopupAlert(PopUpManager.createPopUp(parent,PopupAlert,true));
+				downloadingTheSlidesToDiskAlert.setWidthAndHeight(350,110);
+				//downloadingTheSlidesToDiskAlert.titleLabel.text = "Downloading Slide Library";
+				downloadingTheSlidesToDiskAlert.titleLabel.text = "Updating";
+				downloadingTheSlidesToDiskAlert.titleLabel.visible = true;
+				downloadingTheSlidesToDiskAlert.buttonsHGroup.visible = false;
+				downloadingTheSlidesToDiskAlert.progressBarMode = true;
+				downloadingTheSlidesToDiskAlert.bodyTextArea.visible = false;
+				
+				
+				if ( updatingWasBypassedAtLastLogin )
+				{
+					downloadingTheSlidesToDiskAlert.forcedUpdatesTextArea.text = DatabaseModel.GET_UPDATES_WANT_EM_OR_NOT;
+					downloadingTheSlidesToDiskAlert.showForceUpdateText();	
+					downloadingTheSlidesToDiskAlert.setWidthAndHeight(350,165);
+					forcedUpdatesMessageTimer = new Timer(3000,1);
+					forcedUpdatesMessageTimer.start();
+				}
+				PopUpManager.centerPopUp(downloadingTheSlidesToDiskAlert); 
+			}
+			
+			//==========================================================================================
+			// V6
+			//==========================================================================================
+			
+			private function onShowUpgradeVersionAvailable(se:SlidesEvent):void{
+				softwareVerionsUpgradeAvailableVBox.visible = true;	
+			}
+			
+			
+			//==========================================================================================			
+			// GETTERS AND SETTERS
+			//==========================================================================================
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+			
+			
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================			
+			// UPDATES DATA IS EMPTY
+			//==========================================================================================
+			
+			private function updatesDataIsNotEmpty(updatesData:Object):Boolean{
+				// for laziness i am just copy pasting the whole updating rigmarole here sans actual database opertations
+				var iGoUpdates:Boolean = false;
+				// CREATE
+				if ( updatesData.Create != null )
+				{
+					if ( updatesData.Create.Bundles != null && (updatesData.Create.Bundles as Array).length > 0 )
+					{
+						hadCoreUpdates = true;
+						return true;
+						
+					}
+					if ( updatesData.Create.Slides != null && (updatesData.Create.Slides as Array).length > 0 )
+					{
+						hadCoreUpdates = true;
+						return true;
+					}
+					if ( updatesData.Create.Section_Slides != null && (updatesData.Create.Section_Slides as Array).length > 0 )
+					{
+						hadCoreUpdates = true;
+						return true;
+						
+					}
+					if ( updatesData.Create.Presentations != null && (updatesData.Create.Presentations as Array).length > 0 )
+					{	
+						hadCoreUpdates = true;
+						return true;
+					}
+					
+					if ( updatesData.Create.Core_Optional_Connection != null && (updatesData.Create.Core_Optional_Connection as Array).length > 0 )
+					{
+						hadCoreUpdates = true;
+						return true;
+					}
+					
+				}
+				
+				
+				
+				// DELETE
+				if ( updatesData.Delete != null )
+				{
+					if ( updatesData.Delete.Bundles != null && (updatesData.Delete.Bundles as Array).length > 0 )
+					{
+						hadCoreUpdates = true;
+						return true;
+					}
+					if ( updatesData.Delete.Slides != null && (updatesData.Delete.Slides as Array).length > 0 )
+					{
+						hadCoreUpdates = true;
+						return true;
+					}
+					if ( updatesData.Delete.Section_Slides != null && (updatesData.Delete.Section_Slides as Array).length > 0 )
+					{
+						// DELETE CUSTOM SLIDES
+						for ( var y:uint = 0; y < (updatesData.Delete.Section_Slides as Array).length; y++)
+						{
+							hadCoreUpdates = true;
+							return true;
+						}
+					}
+					if ( updatesData.Delete.Presentations_Optional_Decks != null && (updatesData.Delete.Presentations_Optional_Decks as Array).length > 0 )
+					{
+						hadCoreUpdates = true;
+						return true;
+					}
+					
+					if ( updatesData.Delete.Core_Optional_Connection != null && (updatesData.Delete.Core_Optional_Connection as Array).length > 0 )
+					{
+						hadCoreUpdates = true;
+						return true;
+					}
+				}
+				
+				
+				
+				// UPDATE
+				var i:uint;
+				var secSlideUpdateCounter:uint;
+				var sectionSlideId:Object;
+				var customPresentationsBasedOnCorePresentationId:Array;
+				var custPres:Object;
+				var customPresntationId:uint;
+				var secSlideIdPlusCustPresId:uint;
+				
+				if ( updatesData && updatesData.Update)
+				{
+					if ( updatesData.Update.Presentations && ( updatesData.Update.Presentations as Array).length > 0)
+					{
+						for ( i=0; i < ( updatesData.Update.Presentations as Array).length; i++)
+						{
+							var presUpdate:Object = updatesData.Update.Presentations[i];
+							if ( presUpdate.hasOwnProperty("deck_name") )
+							{
+								hadCoreUpdates = true;
+								return true;
+							}
+							if ( presUpdate.hasOwnProperty("printable_pdf") )
+							{
+								hadCoreUpdates = true;
+								return true;
+							}
+							if ( presUpdate.hasOwnProperty("resources_title") )
+							{
+								hadCoreUpdates = true;
+								return true;
+							}
+							if ( presUpdate.hasOwnProperty("resources_order") )
+							{
+								hadCoreUpdates = true;
+								return true;
+							}
+						}
+					}
+					if ( updatesData.Update.Optional_Decks && ( updatesData.Update.Optional_Decks as Array).length > 0)
+					{
+						for ( i=0; i < ( updatesData.Update.Optional_Decks as Array).length; i++)
+						{
+							var optUpdate:Object = updatesData.Update.Optional_Decks[i];
+							if ( optUpdate.hasOwnProperty("deck_name") )
+							{
+								hadCoreUpdates = true;
+								return true;
+							}
+						}
+					}
+					if ( updatesData.Update.Slides && ( updatesData.Update.Slides as Array).length > 0 )
+					{
+						for ( i=0; i < ( updatesData.Update.Slides as Array).length; i++)
+						{
+							var slideAloneUpdate:Object = updatesData.Update.Slides[i];
+							if ( slideAloneUpdate.hasOwnProperty("notes"))
+							{
+								hadCoreUpdates = true;
+								return true;
+							}
+							if ( slideAloneUpdate.hasOwnProperty("printable_pdf"))
+							{
+								hadCoreUpdates = true;
+								return true;
+							}
+						}
+					}
+					if ( updatesData.Update.Section_Slides && ( updatesData.Update.Section_Slides as Array).length > 0 )
+					{
+						for ( secSlideUpdateCounter=0; secSlideUpdateCounter < ( updatesData.Update.Section_Slides as Array).length; secSlideUpdateCounter++)
+						{
+							var slideUpdate:Object = updatesData.Update.Section_Slides[secSlideUpdateCounter];
+							if ( slideUpdate.hasOwnProperty("id") && slideUpdate.hasOwnProperty("slide_id") )
+							{
+								hadCoreUpdates = true;
+								return true;
+							}
+							if ( slideUpdate.hasOwnProperty("id") && slideUpdate.hasOwnProperty("sequence") )
+							{
+								hadCoreUpdates = true;
+								return true;
+							}// end if for changing the sequence
+							
+							if ( slideUpdate.hasOwnProperty("id") && slideUpdate.hasOwnProperty("mandatory") )
+							{
+								hadCoreUpdates = true;
+								return true;
+							} 
+						}
+					}
+				}
+				
+				//RESOURCES
+				
+				var i:uint;
+				var resourceId:int;
+				var resourceUpdateObject:Object;
+				
+				if ( ! updatesData ) return false;
+				
+				if ( updatesData.Create != null )
+				{
+					if ( updatesData.Create.Resources != null )
+					{
+						if ( updatesData.Create.Resources.by_brand != null && ( updatesData.Create.Resources.by_brand as Array ).length > 0 )
+						{
+							return true;	
+						}
+						if ( updatesData.Create.Resources.by_deck != null && ( updatesData.Create.Resources.by_deck as Array ).length > 0 )
+						{
+							return true;	
+						}
+						
+					}
+				}		
+				
+				if ( updatesData.Delete != null )
+				{
+					if ( updatesData.Delete.Resources != null && updatesData.Delete.Resources.length > 0 )
+					{
+						return true;
+					}
+				}
+				
+				if ( updatesData.Update != null )
+				{
+					if ( updatesData.Update.Resources && ( updatesData.Update.Resources as Array).length > 0)
+					{
+						for ( i = 0 ; i < updatesData.Update.Resources.length; i++)
+						{
+							return true;
+						}
+					}
+				}
+				
+				// EXTERNAL APPS
+				var i:uint;
+				var appName:String = "";
+				
+				if ( ! updatesData ) return false;
+				
+				if ( updatesData.Create != null )
+				{
+					if ( updatesData.Create["External Apps"] != null )
+					{
+						return true;
+					}
+				}		
+				
+				if ( updatesData.Delete != null )
+				{
+					if ( updatesData.Delete["External Apps"] != null && updatesData.Delete["External Apps"].length > 0 )
+					{
+						return true;
+					}
+				}
+				
+				
+				// NEWER CUSTOM DECKS
+				if ( updatesData && updatesData.custom_decks && updatesData.custom_decks.length > 0 )
+				{
+					
+					var cds:Array = updatesData.custom_decks as Array;
+					
+					for ( var i : uint = 0 ; i < cds.length; i++ )
+					{
+						var cd:Object = cds[i];
+						var coreDecksArray:Array = dbModel.getWhere(dbModel.systemSQLConnection, "presentations","presentation_id",cd.deck_id);
+						
+						if ( coreDecksArray == null || coreDecksArray.length < 1 )
+						{
+							// so what's happened is someone was on a machine and created a customized deck from a core deck that had been deleted on admin --
+							//		without them having received the updates for that core deletion
+							//	so now we have an custom deck based off of a core deck that no longer exists
+							// so wtf. well at least we know that there should be updates here one way or another so
+							return true;
+						}
+						var coreDeck:Object = coreDecksArray[0];
+						
+						
+						var po:Object = new Object();	// po = presentationObject
+						po.presentation_id = cd.deck_id;
+						po.presentation_name = coreDeck.presentation_name;
+						// take the user_last_saved date timestamp off the cd and convert it to date_created time format
+						//var ulsTStamp:Number = cd.user_last_saved;
+						//var dateFromTStamp:Date = new Date(ulsTStamp*1000);
+						//var dcString:String = DateField.dateToString(dateFromTStamp, "YYYY-MM-DD");
+						//po.date_created = dcString;	//coreDeck.date_created;
+						po.brand_id = coreDeck.brand_id;
+						po.is_locked = 0;	// we know it's not sequenceLocked cause otherwise wouldnt have been able to customize it in first place
+						po.custom_title = cd.deck_name;
+						po.printable_pdf = coreDeck.printable_pdf;
+						po.sequence_locked = coreDeck.sequence_locked;
+						po.sectionId = coreDeck.sectionId;
+						po.resources_title = coreDeck.resources_title;	
+						po.resources_order = coreDeck.resources_order;	
+						po.is_pushed = true;
+						po.guid = cd.uuid;						
+						po.user_last_saved = cd.user_last_saved;
+						
+						//lastly - if we don't already have this guy we need to add a custom_presentation_id
+						var cdsWithSameGuid:Array = dbModel.getWhere(dbModel.customSQLConnection,"presentations","guid","'"+cd.uuid+"'");
+						if ( cdsWithSameGuid && cdsWithSameGuid.length > 0)
+						{
+							//we already have this custom deck		
+							if ( cdsWithSameGuid.length > 1 ) throw new Error("More than one custom presentation in table with same GUID");
+							po.custom_presentation_id = cdsWithSameGuid[0].custom_presentation_id;
+							// now if our timestamp for this guy is the latest we skip everything 
+							var clientTimeStamp:Number = Number(cdsWithSameGuid[0].user_last_saved);
+							var malkasTimeStamp:Number = cd.user_last_saved as Number;
+							if ( malkasTimeStamp > clientTimeStamp )
+							{
+								// its newer so yes lets do the update
+								//insertTitleSlideFromUpdatesJSON(cd,po);
+								return true;
+							}else{
+								continue;	// skip this guy its out of date
+							}
+						}else{
+							// get new custom id
+							return true;
+						}
+					}
+				}
+				
+				// any custom decks to delete?
+				if ( updatesData && updatesData.custom_decks_to_delete && updatesData.custom_decks_to_delete.length > 0 )
+				{
+					return true;
+				}
+
+				
+				return false;
+			}
+			
+		]]>
+	</fx:Script>
+	
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	
+	<s:Image id="keypointLogoImg" 
+			 source="@Embed('assets/images/keypoint_logo.png')"
+			 right="90" bottom="85"
+			 />
+	<s:Image id="bottomBlueLineImg"
+			 source="@Embed('assets/images/bottom_blue_border.png')"
+			 bottom="0" x="0"
+			 />
+	
+	
+	<s:Image id="excelBrandImg"
+			 source="@Embed('assets/images/excelLogo2.png')"
+			 verticalCenter="53"
+			 right = "200"
+			 visible="false"
+			 click="excelBrandImg_clickHandler(event)"
+			 />
+	
+	<s:Image id="nnpeBrandImg"
+			 source="@Embed('assets/images/nnpeLogo2.png')"
+			 verticalCenter="50"
+			 left = "200"
+			 visible="false"
+			 click="nnpeBrandImg_clickHandler(event)"
+			 />
+	
+	<s:Label id="pleaseSelectLabel"
+			 text="Please select which speakers bureau you wish to work on."
+			 color="white"
+			 fontSize="18"
+			 visible="false"
+			 horizontalCenter="0"
+			 verticalCenter="-140"
+			 />
+	<!-- above NNPE which is 250 wide-->
+	<s:HGroup horizontalCenter="-178"
+			  verticalCenter="-80"
+			  gap="1"
+			  >
+		<s:Label 
+			text="Abilify"
+			color="white"
+			fontSize="18"
+			visible="{pleaseSelectLabel.visible}"
+			/>
+		<s:Label 
+			text="&#x00AE;"
+			color="white"
+			fontSize="12"
+			visible="{pleaseSelectLabel.visible}"
+			/>
+		<s:Label 
+			text=" (aripiprazole)"
+			color="white"
+			fontSize="18"
+			visible="{pleaseSelectLabel.visible}"
+			/>
+		
+	</s:HGroup>
+	
+	<s:HGroup  horizontalCenter="178"
+			   verticalCenter="-80"
+			   gap="1"
+			   >
+		<!-- TM superscript below is good &#8482-->
+		<!-- above EXCEL -->
+		<s:Label
+			text="Abilify Maintena"
+			color="white"
+			fontSize="18"
+			visible="{pleaseSelectLabel.visible}"
+			
+			/>
+		<s:Label
+			text="&#x00AE;"
+			color="white"
+			fontSize="12"
+			visible="{pleaseSelectLabel.visible}"
+			/>
+		
+		<s:Label
+			text=" (aripiprazole)"
+			color="white"
+			fontSize="18"
+			visible="{pleaseSelectLabel.visible}"
+			/>
+	</s:HGroup>
+	
+	
+	<view:LoginPanel id="loginPanel"
+					 y="45" x = "600"					 
+					 />
+	<!--  Per 'them' : 	""Bold is ok. It needs to be a footer and centered though. ""
+	<s:Label id="disclaimer1" text="FOR SPEAKER USE ONLY." 
+	width="265" y="380" x="600" fontSize="14"
+	color="0x000000" textAlign="center" fontWeight="bold"
+	visible="{loginPanel.visible}"/>
+	
+	<s:Label id="disclaimer2" text="DO NOT DUPLICATE OR DISTRIBUTE." 
+	width="265" y="400" x="600" fontSize="14"
+	color="0x000000" textAlign="center" fontWeight="bold"
+	visible="{loginPanel.visible}"/> -->
+	
+	<!-- V6 -->
+	<mx:VBox id="softwareVerionsUpgradeAvailableVBox"
+			 x="0"
+			 y="45"
+			 width="600"
+			 height="100"
+			 backgroundAlpha="1"
+			 backgroundColor="#143a5b"
+			 visible="false"
+			 >
+		
+		<s:Spacer height="20" />
+		
+		<s:Label text="There is a new version of KEYPOINT software available." color="white" width="600" horizontalCenter="0" textAlign="center" fontSize="16"/>
+		
+		<s:Label text="Download Now" color="#DF9864" textDecoration="underline" width="600" horizontalCenter="0" fontSize="18" textAlign="center"
+				 click="navigateToURL(new URLRequest('http://otsukaweb.beta.va-dev.net/static/install/'));"/>
+		
+		
+	</mx:VBox>
+	
+	<s:Rect id="orangeLineUnderSoftwareUpgradeBox"
+			x="0" y="145" width="600" height="2" visible="{softwareVerionsUpgradeAvailableVBox.visible}"
+			>
+		<s:stroke>
+			<s:SolidColorStroke color="#DF9864" weight="2"/>
+		</s:stroke>	
+	</s:Rect>
+	
+	<s:Label id="disclaimerTxt" text="FOR SPEAKER USE ONLY. DO NOT DUPLICATE OR DISTRIBUTE." 
+			 bottom="20"
+			 width="100%" fontSize="11"
+			 color="0x000000" textAlign="center" fontWeight="bold"
+			 />
+	<!-- change 4/10/13 
+	<s:Label id="footerTxt" text="570US13PF00601   March 2013   03US13P-1108" 
+	bottom="20"
+	left="5"
+	color="0x000000" fontSize="11" fontWeight="bold"
+	/> 
+	-->
+	
+	<s:Image id="orangeLineImg" 
+			 source="@Embed('assets/images/orange_line.png')" 
+			 y = "45"/>
+	
+</s:Group>

@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+				   xmlns:s="library://ns.adobe.com/flex/spark" 
+				   xmlns:mx="library://ns.adobe.com/flex/mx" 
+				   xmlns:view="com.desktop.otsuka.slidelibrary.view.*" 
+				 >
+	
+
+	<fx:Declarations>
+		<s:BitmapImage id="whiteArrowOpen" source="@Embed('assets/images/whitearrow_open2.png')"/>
+		<s:BitmapImage id="whiteArrowClosed" source="@Embed('assets/images/whitearrow_closed2.png')"/>
+	</fx:Declarations>
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.controller.UnwantedTileWorker;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import mx.collections.ArrayCollection;
+			
+			
+			public var optionalDeck:Object;
+			[Bindable]
+			private var deckName:String;
+			
+			private var _optionalSlidesAC:ArrayCollection;
+			private var _loadedSlidesMap:Object;
+			
+			public var worker:UnwantedTileWorker;
+			
+			//================================================================================================
+			// INITIALIZE
+			//================================================================================================
+			
+			public function init($optionalDeck:Object ,optionalSlides:Array, _loadedSlidesMap:Object,$presentationObject:Object):void{
+				trace("Inside UnwantedOptionalTile mxml init");
+				
+				worker = new UnwantedTileWorker(unwantedSlidesVGroup,arrowImage,$presentationObject,$optionalDeck.optional_deck_id);
+				optionalDeck = $optionalDeck;
+				deckName = optionalDeck.deck_name;
+				_optionalSlidesAC = new ArrayCollection(optionalSlides);
+				addEventListeners(worker);
+				worker._unwantedSlidesAC = new ArrayCollection(optionalSlides);
+				worker._loadedAnySlidesMap = _loadedSlidesMap;
+			}
+			private function addEventListeners(worker:UnwantedTileWorker):void{
+				worker.addEventListener(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP, function (se:SlidesEvent):void{
+					var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP);
+					slidesEvent.slide = se.slide;
+					slidesEvent.slides = se.slides;
+					dispatchEvent(slidesEvent);
+					unwantedSlidesVGroup.visible = !unwantedSlidesVGroup.visible;//TODO do we need this?
+					unwantedSlidesVGroup.visible = !unwantedSlidesVGroup.visible;
+				});
+				worker.addEventListener(SlidesEvent.ZOOM_IN_ON_SLIDE, function (se:SlidesEvent):void{
+					var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.ZOOM_IN_ON_SLIDE);
+					slidesEvent.slide = se.slide;
+					slidesEvent.bitmap = se.bitmap;
+					dispatchEvent(slidesEvent);
+				});
+				worker.addEventListener(SlidesEvent.OPTIONAL_DECK_HIDDEN, function (se:SlidesEvent):void{
+					var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.OPTIONAL_DECK_HIDDEN);
+					dispatchEvent(slidesEvent);
+					//trace("unwanted Optional Deck HIDE ------>  "+slidesEvent.newHeight ); //NOTE
+				});
+				worker.addEventListener(SlidesEvent.OPTIONAL_DECK_SHOWN, function (se:SlidesEvent):void{
+					var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.OPTIONAL_DECK_SHOWN);
+					slidesEvent.newHeight = se.newHeight;
+					dispatchEvent(slidesEvent);
+					//trace("unwanted Optional Deck shown ------>  "+slidesEvent.newHeight ); //NOTE
+				});
+				
+				worker.addEventListener(SlidesEvent.SWAP_EITHER_OR_BUNDLE, function (se:SlidesEvent):void{										
+					var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.SWAP_EITHER_OR_BUNDLE);
+					slidesEvent.slide = se.slide;
+					slidesEvent.slides = se.slides;
+					dispatchEvent(slidesEvent);
+				});
+				
+			
+			}
+			
+			//================================================================================================
+			// PUBLIC FUNCTION
+			//================================================================================================
+			
+			public function onRemoveUnwantedSlideThroughDragDrop(slide:Object):void{
+				worker.onRemoveUnwantedSlideThroughDragDrop(slide);
+			}
+			
+			//================================================================================================
+			// POPULATE
+			//================================================================================================
+			
+			public function populateUnwantedSlides():void{
+			//	dbModel._optionalActive =true;
+			//	trace("Repopulate FUNCTION TRUE ======>  "+dbModel._optionalActive);
+				worker._unwantedSlidesAC.source.sortOn("sequence",Array.NUMERIC);
+				worker._unwantedSlidesAC.refresh();
+				worker.populateUnwantedSlides();
+				worker.arrowImage_clickHandler(null); // so scroll bar can adjust
+				worker.arrowImage_clickHandler(null);
+				
+			}
+			
+//			public function addSlideAndRepopulate(slide:Object):void{
+//				trace("adding slide to unwanted optional tile w id : " + slide.slide_id);
+//				worker._unwantedSlidesAC.addItem(slide);
+//				worker._unwantedSlidesAC.source.sortOn("sequence", Array.NUMERIC);
+//				unwantedSlidesVGroup.removeAllElements();
+//				worker.populateUnwantedSlides();
+//				unwantedSlidesVGroup.visible = false;
+//				unwantedSlidesVGroup.visible = true;
+//			}
+			public function removeSlide(wantedSlide:Object):void{
+				for ( var i :uint = 0 ; i < _optionalSlidesAC.length; i++)
+				{
+					var optionalSlide:Object = _optionalSlidesAC.getItemAt(i);
+					if ( optionalSlide.slide_id == wantedSlide.slide_id)
+					{
+						_optionalSlidesAC.removeItemAt(i);
+						break;
+					}
+				}
+				unwantedSlidesVGroup.removeAllElements();
+				populateUnwantedSlides();
+				unwantedSlidesVGroup.visible = false;
+				unwantedSlidesVGroup.visible = true;
+			}  
+			
+			
+			//================================================================================================
+			// CLICK HANDLERS
+			//================================================================================================
+			
+			
+//			Arrow rotate for Optional Deck
+			public function rotateArrow(e:Event):void{
+			if ( unwantedSlidesVGroup.visible )
+				{				trace("Arrow is Open State");
+					//arrowImage.rotation = 0;
+					arrowImage.source =whiteArrowOpen.source;
+				}
+				else
+				{   
+					trace("Arrow is closed State");
+					//	arrowImage.rotation = 90;
+					arrowImage.source = whiteArrowClosed.source;
+				}	
+				
+			}
+			
+			//================================================================================================
+			// WORKER FUNCTIONS
+			//================================================================================================
+			
+			public function getVisibleHeight():Number{ 
+				return worker.getVisibleHeight();				
+			}
+			
+			public function cleanSlate():void{
+				unwantedSlidesVGroup.removeAllElements();
+			}
+			
+			//================================================================================================
+			// GETTERS AND SETTERS
+			//================================================================================================
+			
+			public function getAllUnwantedOptionalSlides():Array{
+				return _optionalSlidesAC.source;
+			}
+			
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+			
+			// ON CHOPPING BLOCK
+			//private function onRemoveUnwantedSlide(e:Event):void{
+				//				var unwantedSlideRenderer:UnwantedSlideRenderer = ( e.currentTarget as UnwantedSlideRenderer);
+				//				var slide:Object = unwantedSlideRenderer.slide;
+				//				removeUnwantedSlideAndRepopulate(slide);
+				//				var se:SlidesEvent = new SlidesEvent(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP);
+				//				se.slide = slide;
+				//				dispatchEvent(se);
+				//			}
+				//			private function onZoomInOnUnwantedSlide(e:Event):void{
+				//				var unwantedSlideRenderer:UnwantedSlideRenderer = ( e.currentTarget as UnwantedSlideRenderer);
+				//				var slide:Object = unwantedSlideRenderer.slide;
+				//				var se:SlidesEvent = new SlidesEvent(SlidesEvent.ZOOM_IN_ON_SLIDE);
+				//				se.bitmap = unwantedSlideRenderer.thumbnailImage.source as Bitmap;
+				//				se.slide = slide;
+				//				dispatchEvent(se);
+				//			}	
+			
+			//private function removeUnwantedSlideAndRepopulate(slide:Object):void{
+				//				for ( var i :uint = 0 ; i < _optionalSlidesAC.length; i++)
+				//				{
+				//					var optionalSlide:Object = _optionalSlidesAC.getItemAt(i);
+				//					if ( optionalSlide.slide_id == slide.slide_id)
+				//					{
+				//						_optionalSlidesAC.removeItemAt(i);
+				//						break;
+				//					}
+				//				}
+				//				unwantedSlidesVGroup.removeAllElements();
+				//				populateUnwantedSlides();
+				//				
+				//			}
+			
+			//			private function makeUnwantedHGroupRow():HGroup{
+			//				var hgRow:HGroup= new HGroup();
+			//				hgRow.width = 290;
+			//				hgRow.gap = 7;
+			//				return hgRow;
+			//			}
+			
+			private function rotateImg(e:Event):void{
+				var obj:*;
+				obj=e.target;
+				obj.rotation=90;
+			}
+	
+		]]>
+	</fx:Script>
+	<!-- width = "290"-->
+	<s:Image id="tileBackgroundImage"
+			 source="@Embed('assets/images/coreBackground.png')"
+			 width = "290"
+			 height="50"
+			 />
+	
+	<s:Label id="optionalDeckTitleLabel"
+			 text="{deckName}"
+			 width="290"
+			 color="0xffffff"
+			 textAlign="left"
+			 fontSize="16"
+			 y= "20"
+			 x="10"
+			 fontWeight="bold"
+			 />
+	
+	<!--Added NOTE fixed white arrow rotate -->
+	<!-- rotation="{(unwantedSlidesVGroup.visible ? 90:0 )}"-->
+	<!--	 complete="rotateImg(event)"-->
+	<s:Image id="arrowImage"
+			 source="@Embed('assets/images/whitearrow_closed2.png')"
+			 x="265"
+			 y="15"
+			 
+			 
+			 />
+	<!-- Invisible button -->
+	<s:Button width = "290"
+			  height="50" alpha="0"  
+			  useHandCursor="true" buttonMode="true"
+			  click="worker.arrowImage_clickHandler(event);rotateArrow(event);"/>
+	
+
+		
+	<!--  width="280"-->
+	<s:Scroller y="{tileBackgroundImage.y + 50}"   height="500" width="{tileBackgroundImage.width-5}" id="_unwantedOptionalScroller"
+				horizontalScrollPolicy="off">
+		<s:VGroup id="unwantedSlidesVGroup"
+				  width="280"
+				  y = "55"
+				  visible="true"
+				  gap="10"
+				  includeInLayout="{unwantedSlidesVGroup.visible}"
+				  paddingLeft="2"
+				  />
+	</s:Scroller>
+		 	
+	
+	
+</s:Group>

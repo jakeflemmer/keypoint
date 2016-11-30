@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Window xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		  xmlns:s="library://ns.adobe.com/flex/spark" 
+		  xmlns:mx="library://ns.adobe.com/flex/mx"
+		  >
+	
+	<fx:Script>
+		<![CDATA[
+			
+			
+			// =========================================================================
+			// PUBLIC FUNCTIONS            =============================================
+			// =========================================================================
+			
+			[Bindable]
+			public var pdfLocation:String = "";
+			
+			protected function focusCatchingTextInput_clickHandler(event:MouseEvent):void
+			{
+				trace("clicked focusCatchingTextInput");
+			}
+			
+			protected function keyUpHandlers(event:KeyboardEvent):void
+			{
+				trace("resourcesListPanel keyUpHandler()"); 
+				switch( event.keyCode ) 
+				{ 
+					case Keyboard.ESCAPE :
+						close();
+						break;
+					
+				}//end case
+			}	
+			//backgroundAlpha="0.01" backgroundColor="black" alpha="0.01" 
+		]]>
+	</fx:Script>
+	
+	
+	<mx:HTML id="webView"  location="{pdfLocation}" />
+	
+	<!--s:TextInput id="focusCatchingTextInput" width="{webView.width}" height="{webView.height}" 
+	prompt="prompt"
+	click="focusCatchingTextInput_clickHandler(event)"/-->
+</s:Window>

@@ -1,0 +1,3028 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" xmlns:view="com.desktop.otsuka.slidelibrary.view.*"
+		 dragOver="group1_dragOverHandler(event)"
+		 >	
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.PrintPDFsCommand;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesUtilities;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			import com.desktop.otsuka.slidelibrary.model.SlideSystemModel;
+			import com.desktop.otsuka.slidelibrary.view.skins.CleanSaveButtonSkin;
+			import com.desktop.otsuka.slidelibrary.view.skins.DirtySaveButtonSkin;
+			import com.desktop.otsuka.slidelibrary.view.skins.HomeButtonSkin;
+			
+			import flash.net.navigateToURL;
+			import flash.utils.flash_proxy;
+			
+			import mx.binding.utils.BindingUtils;
+			import mx.collections.ArrayCollection;
+			import mx.controls.Alert;
+			import mx.controls.DateField;
+			import mx.core.DragSource;
+			import mx.core.UIComponent;
+			import mx.events.DragEvent;
+			import mx.events.FlexEvent;
+			import mx.managers.CursorManager;
+			import mx.managers.DragManager;
+			import mx.managers.PopUpManager;
+			import mx.rpc.events.FaultEvent;
+			import mx.rpc.events.ResultEvent;
+			import mx.rpc.http.HTTPService;
+			import mx.utils.UIDUtil;
+			
+			import spark.components.HGroup;
+			
+			//=========================================================================================
+			// VARIABLES
+			//=========================================================================================
+			
+//			public static const LARGE_THUMB_WIDTH:Number = 124; //155;
+//			public static const LARGE_THUMB_HEIGHT:Number = 94; //100;
+//			public static const SMALL_THUMB_WIDTH:Number = 75;
+//			public static const SMALL_THUMB_HEIGHT:Number = 50;
+			/*
+			#define kCustomGridEitherOrSwapableColorDarkRed @"8B0000"
+			#define kCustomGridEitherOrSwapableColorDarkBlue @"00008B"
+			#define kCustomGridEitherOrSwapableColorDarkViolet @"9400D3"
+			#define kCustomGridEitherOrSwapableColorDarkOrange @"FF8C00"
+			#define kCustomGridEitherOrSwapableColorMediumSeaGreen @"3CB371"
+			#define kCustomGridEitherOrSwapableColorTeal @"008080"
+			#define kCustomGridEitherOrSwapableColorDarkGoldenRod @"B8860B"
+			#define kCustomGridEitherOrSwapableColorDarkGreen @"006400"
+			#define kCustomGridEitherOrSwapableColorOrangeRed @“FF4500"
+			*/
+			private const EITHER_OR_BUNDLE_COLORS:Array = ["#8B0000","#00008B","#9400D3","#FF8C00","#3CB371","#008080","#B8860B","#006400","#FF4500"];
+			
+			private var _dirtyFlag:Boolean = false;			
+			
+			private var _unsplitSlidesAC:ArrayCollection;			
+			public var _wantedSlidesAC:ArrayCollection; 			
+			private var _unwantedCoreSlidesAC:ArrayCollection;			
+			private var _unwantedOptionalSlidesAC:ArrayCollection;
+			
+			public var _presentationObject:Object;			
+			private var _optionalSlideIdMap:Object;
+			private var _loadedSlidesMap:Object = new Object();
+			private var _wantedRendererMap:Object = new Object();
+			
+			
+			private var _titleSlideSecSlideIdPlusCustPresId:uint;
+			
+			private var previewingSlideObject:Object;
+			
+			private var service:HTTPService;
+			
+			private var lastColumnDraggingOver:uint;
+			private var lastRowDraggingOver:uint;
+			private var denotationMap:Object = new Object();
+			private var lastDenotationNumber:Number = 64;
+			
+			private var initialSlideSequenceForDirtyFlag:Object;
+			
+			[Bindable]
+			private var _index:uint = 0;
+			[Bindable]
+			private var _presentationTitle:String;
+			
+			public var combosMap:Object = new Object();
+			private var combosRequiredMap:Object = new Object();
+			
+			
+			//[Bindable]
+			//private var _myOptional:Object = _optionalActive;
+			
+			//=========================================================================================
+			// INITIALIZE
+			//=========================================================================================
+			
+			
+			//public function init($presentation:Object, $slides:Array,$loadedSlidesMap:Object):void{
+				public function init($presentation:Object, $slides:Array,model:SlideSystemModel):void{
+				
+				_presentationObject = $presentation;
+				_unsplitSlidesAC = new ArrayCollection($slides);
+				
+				_wantedRendererMap = new Object();
+				
+				_loadedSlidesMap = model.loadedSlidesMap;
+				
+				_wantedSlidesAC = new ArrayCollection();	
+				_unwantedCoreSlidesAC = new ArrayCollection();	
+				_unwantedOptionalSlidesAC = new ArrayCollection();
+				
+				lastDenotationNumber = 64;
+				//denotationMap = new Object();
+					
+				dirtyFlag = false;
+				titleSlideWidget.dirtyFlag = false;
+				dbModel.dontShowBundleAlertAgain = false;
+				
+				
+				//V6 
+				removeDuplicateEitherOrOptionalSlides();
+				
+				var bundlesDenoted:Boolean = false;
+				if ( _presentationObject.sequence_locked )
+				{
+					_unsplitSlidesAC.source.sortOn("sequence",Array.NUMERIC);
+					denoteBundlesV6();
+					bundlesDenoted = true;
+				}
+				
+				splitSlidesIntoWantedAndUnwantedCoreAndUnwantedOptionalGroups();
+				
+				titleSlideWidget.resetLabelsToDefaults();
+				
+				setTheTitleAndMaybeDoImplicitSave();		// which serializes the sec_slide_id_plus_cust_pres_id		
+				
+				//V6
+				putTheIsSwappablePropertyOntoEachSlide(_unsplitSlidesAC);
+				
+				
+				titleSlideWidget.loadTheTileSlideFromTheDatabase(_presentationObject.custom_presentation_id);
+				
+				cleanTheSlate();	
+				
+				vg.verticalScrollPosition = 0;
+				
+				
+				sortAllSlidesArraysOnSequence();// unless customSequence already populated.
+				
+				if ( ! bundlesDenoted )
+				{
+					denoteBundles();
+				}
+				
+				pickOutTheTitleSlide();
+				
+				populateWantedGroup(true);
+				
+				populateUnwantedCoreGroup();	
+				
+				initOptionalDecksManager();
+				
+				storeTheInitialSequenceOfTheSlidesForDeterminingDirtyFlag();
+				
+				
+			}	
+			private function removeDuplicateEitherOrOptionalSlides():void{
+				var dupesMap:Object = new Object();
+				var unique:ArrayCollection = new ArrayCollection();
+				for ( var i:uint = 0 ; i < _unsplitSlidesAC.length; i++ ) {
+					var eachSlide:Object = _unsplitSlidesAC.getItemAt(i);
+					if ( dupesMap[eachSlide.section_slide_id] == null)
+					{
+						dupesMap[eachSlide.section_slide_id] = eachSlide;
+						unique.addItem(eachSlide);
+					}else{
+						dupesMap[eachSlide.section_slide_id].optional_deck_id = eachSlide.optional_deck_id;
+						trace("duplicate slide removed from custom deck either or bundle"); 
+					}
+				}
+				_unsplitSlidesAC = unique;
+			}
+			private function storeTheInitialSequenceOfTheSlidesForDeterminingDirtyFlag():void{
+				initialSlideSequenceForDirtyFlag = new Object();
+				for ( var i:uint = 0; i < _wantedSlidesAC.length; i++)
+				{
+					var wantedSlide:Object = _wantedSlidesAC.getItemAt(i);
+					initialSlideSequenceForDirtyFlag[wantedSlide.sec_slide_id_plus_cust_pres_id] = wantedSlide.customSequence;
+				}
+			}
+			
+			private function sortAllSlidesArraysOnSequence():void{
+				
+				var testSlide:Object = _wantedSlidesAC.getItemAt(0);
+				if ( testSlide.customSequence > 0 )
+				{
+					_wantedSlidesAC.source.sortOn("customSequence",Array.NUMERIC);
+					_wantedSlidesAC.refresh();
+				}else{
+					_wantedSlidesAC.source.sortOn("sequence",Array.NUMERIC);
+					_wantedSlidesAC.refresh();	
+				}
+				
+				
+				_unwantedCoreSlidesAC.source.sortOn("sequence",Array.NUMERIC);
+				_unwantedCoreSlidesAC.refresh();
+				
+				_unwantedOptionalSlidesAC.source.sortOn("sequence",Array.NUMERIC);
+				_unwantedOptionalSlidesAC.refresh();
+			}
+			private function initOptionalDecksManager():void{
+				//	trace("Optional DECk Boolean ----> "+dbModel._optionalActive);
+				optionalDecksManager.init(_unwantedOptionalSlidesAC.source,_loadedSlidesMap,_presentationObject);
+				addOptionalDeckMagagerListeners();
+				optionalDecksManager.populateUnwantedOptionalGroups(_unsplitSlidesAC.source);
+				optionalDecksManager.closeAllTilesByDefault();
+			}
+			
+			private function serializesec_slide_id_plus_cust_pres_id():void{
+				var slidesToSave:Array = _unsplitSlidesAC.source;
+				for ( var i:uint = 0 ; i < slidesToSave.length; i++)
+				{
+					var slideToSave:Object = slidesToSave[i];
+					slideToSave.sec_slide_id_plus_cust_pres_id = slideToSave.section_slide_id + ( _presentationObject.custom_presentation_id * 10000);
+				}
+			}
+			private function putTheIsSwappablePropertyOntoEachSlide(allSlides:ArrayCollection):void{
+				var allCombos:Array = dbModel.getWhere(dbModel.systemSQLConnection, 'either_or_combinations', 'presentation_id' , _presentationObject.presentation_id);
+				combosMap = new Object();
+				combosRequiredMap = new Object();
+				var denotationBundlesMap:Object = new Object();
+				var colorIndex:uint = 0;
+				
+				if ( allCombos && allCombos.length > 0 )
+				{
+					for ( var c:uint = 0 ; c < allCombos.length; c ++)
+					{
+						var eachCombo:Object = allCombos[c];
+						
+						combosMap[eachCombo.object_one_object_id] = eachCombo.object_two_object_id;
+						combosMap[eachCombo.object_two_object_id] = eachCombo.object_one_object_id;
+						if ( eachCombo.required ) 
+						{
+							combosRequiredMap[eachCombo.object_one_object_id] = true;
+							combosRequiredMap[eachCombo.object_two_object_id] = true;
+						}
+						
+						if ( c < EITHER_OR_BUNDLE_COLORS.length )
+						{
+							colorIndex = c;
+						}else{
+							colorIndex = c - EITHER_OR_BUNDLE_COLORS.length;
+						}
+						denotationBundlesMap[eachCombo.object_one_object_id] = EITHER_OR_BUNDLE_COLORS[colorIndex];
+						denotationBundlesMap[eachCombo.object_two_object_id] = EITHER_OR_BUNDLE_COLORS[colorIndex];
+						
+//						for ( var count:uint = 0 ; count < allSlides.length; count ++ )
+//						{
+//							var aSlide:Object = allSlides[count];
+//							
+//							if ( combosRequiredMap[aSlide.sec_slide_id_plus_cust_pres_id - ( _presentationObject.custom_presentation_id * 10000)] == true)
+//							{
+//								aSlide.swap_required = true;
+//							}
+//							if ( combosRequiredMap[aSlide.bundle_id] == true)
+//							{
+//								aSlide.swap_required = true;
+//							}
+//						}
+					}
+				}else {
+					return;
+				}
+				
+				// put the is_swappable property onto each slide 
+				for ( var i: uint = 0 ; i < allSlides.length; i++ )
+				{
+					var eachSlide:Object = allSlides[i];
+					if ( combosMap[eachSlide.sec_slide_id_plus_cust_pres_id - ( _presentationObject.custom_presentation_id * 10000)] != null )
+					{
+						eachSlide.is_swappable = true;
+						eachSlide.denotationColor = denotationBundlesMap[eachSlide.sec_slide_id_plus_cust_pres_id - ( _presentationObject.custom_presentation_id * 10000)];
+					}
+													
+					if ( SlidesUtilities.slideIsBundledSlide(eachSlide) )
+					{
+						if ( combosMap[eachSlide.bundle_id] != null )
+						{
+							eachSlide.is_swappable = true;
+							eachSlide.denotationColor = denotationBundlesMap[eachSlide.bundle_id];
+						}
+					}
+					
+					if ( combosRequiredMap[eachSlide.bundle_id] == true)
+					{
+						eachSlide.swap_required = true;
+					}
+					if ( combosRequiredMap[eachSlide.sec_slide_id_plus_cust_pres_id - ( _presentationObject.custom_presentation_id * 10000)] == true)
+					{
+						eachSlide.swap_required = true;
+					}
+				}
+				
+			}
+			//=========================================================================================
+			// WANTED SLIDES
+			//=========================================================================================
+			
+			private function populateWantedGroup(firstTimePopulating:Boolean = false):void{	
+				trace("populating wanted group - length : " + _wantedSlidesAC.length);
+				wantedGroup.removeAllElements();
+				
+				var testSlide:Object = _wantedSlidesAC.getItemAt(0);
+				if ( testSlide.customSequence > 0 )
+				{
+					_wantedSlidesAC.source.sortOn("customSequence",Array.NUMERIC);
+					_wantedSlidesAC.refresh();
+				}else{
+					_wantedSlidesAC.source.sortOn("sequence",Array.NUMERIC);
+					_wantedSlidesAC.refresh();	
+				}
+				
+				for ( var i:uint = 0 ; i < _wantedSlidesAC.length; i++ )
+				{					
+					var slide:Object = _wantedSlidesAC[i];
+					//if ( ! _presentationObject.sequence_locked || SlidesUtilities.deckContainsNonSequenceLockedBundle(_unsplitSlidesAC))
+					//{
+					slide.customSequence = (i*2)+1; 
+					//}
+					var wantedRenderer:WantedSlideRenderer = makeAndInitWantedRenderer(slide);				
+					
+					var column:uint = i % 4;
+					var row:uint = Math.floor(i/4);
+					wantedRenderer.x = 15 + ( column * (152 + 15)); // 152 is the width of the renederer with a 15 gap in between
+					wantedRenderer.y = 15 + ( row * (93 + 15));
+					
+					wantedGroup.addElement(wantedRenderer);
+				}
+				
+				if ( ! dirtyFlag && ! firstTimePopulating) checkDirtyFlag();
+			}
+			private function checkDirtyFlag():void{
+				
+				for ( var i:uint = 0 ; i < _wantedSlidesAC.length; i++)
+				{
+					var wantedSlide:Object = _wantedSlidesAC.getItemAt(i);
+					if ( initialSlideSequenceForDirtyFlag[wantedSlide.sec_slide_id_plus_cust_pres_id] != wantedSlide.customSequence )
+					{
+						dirtyFlag = true;
+						return;
+					}
+				}
+			}
+			private function makeAndInitWantedRenderer(slide:Object):WantedSlideRenderer{
+				var wantedRenderer:WantedSlideRenderer;
+				if ( _wantedRendererMap[slide.sec_slide_id_plus_cust_pres_id] == null )
+				{			
+					var bitmap:Bitmap = getTheLoadedBitmap(slide.slide_id);
+					wantedRenderer = new WantedSlideRenderer();
+					wantedRenderer.init( slide );
+					registerWantedRendererListeners(wantedRenderer);					
+					wantedRenderer.updateSource(bitmap);
+					_wantedRendererMap[slide.sec_slide_id_plus_cust_pres_id] = wantedRenderer;
+					return wantedRenderer;
+				}
+				else
+				{
+					wantedRenderer = _wantedRendererMap[slide.sec_slide_id_plus_cust_pres_id]; 
+					wantedRenderer.init(slide);
+					return wantedRenderer;
+				}
+			}
+			private function registerWantedRendererListeners(wantedRenderer:WantedSlideRenderer):void{
+				wantedRenderer.addEventListener("REMOVE_ME", onRemoveWantedSlide);
+				//wantedRenderer.addEventListener("SWAP_ME", onSwapEitherOrSlide);	// V6
+				wantedRenderer.addEventListener("SHOW_INFO", onDisplayInfoOfWantedSlide);
+				wantedRenderer.addEventListener("PREVIEW_ME", onPreviewWantedSlide);	
+				wantedRenderer.addEventListener(SlidesEvent.ZOOM_IN_ON_SLIDE, onZoomInOnSlide);
+				wantedRenderer.addEventListener(MouseEvent.MOUSE_MOVE,mouseMoveHandler);
+			}			
+			
+			
+			//==============================================================================
+			//==============================================================================
+			// DRAG AND DROP
+			//==============================================================================
+			//==============================================================================
+			
+			private function mouseMoveHandler(event:MouseEvent):void 
+			{   
+				System.pauseForGCIfCollectionImminent(1); //NOTE 
+				
+				var dragInitiator:Object = Object(event.currentTarget);
+				var ds:DragSource = new DragSource();
+				ds.addData(dragInitiator, "renderer"); 
+				
+				var slide:Object = dragInitiator.slide;	
+				if ( slideIsTitleSlide(slide) ) return;
+				if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == false )
+				{
+					return;
+				}
+				if ( _presentationObject.sequence_locked && SlidesUtilities.slideIsBundledSlide(slide) && SlidesUtilities.bundledSlideIsInAdjacentBundle(slide) ==  false )
+				{
+					return;
+				}
+				if ( SlidesUtilities.pickUpWholeBundleForDrag(event,dragInitiator,ds,_wantedSlidesAC,_loadedSlidesMap) )
+				{
+					// do nothing above function took care of it
+				}else{
+					DragManager.doDrag(dragInitiator as UIComponent, ds, event);	
+				}
+			}
+			// this function is called when an object already being dragged enters the wanted VGroup
+			private function dragEnterHandler(event:DragEvent):void {
+				trace("drag enter handler");
+				var slide:Object;
+				if ( (event.dragInitiator as Object).hasOwnProperty("slide") )
+				{
+					slide = (event.dragInitiator as Object).slide;
+				}
+				if ( _presentationObject.sequence_locked && ( SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == false || slide.unwanted == true ))
+				{
+					return;
+				}
+				if ( _presentationObject.sequence_locked && SlidesUtilities.slideIsBundledSlide(slide) && SlidesUtilities.bundledSlideIsInAdjacentBundle(slide) ==  false )
+				{
+					return;
+				}
+				
+				if (event.dragSource.hasFormat("renderer"))
+				{
+					DragManager.acceptDragDrop(Group(event.currentTarget));					
+				}
+			}
+			private function dragOverHandler(event:DragEvent):void{
+				var slide:Object;
+				if ( (event.dragInitiator as Object).hasOwnProperty("slide") )
+				{
+					slide = (event.dragInitiator as Object).slide;
+				}
+				if ( _presentationObject.sequence_locked && ( SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == false || slide.unwanted == true ))
+				{
+					return;
+				}
+				if ( _presentationObject.sequence_locked && SlidesUtilities.slideIsBundledSlide(slide) && SlidesUtilities.bundledSlideIsInAdjacentBundle(slide) ==  false )
+				{
+					return;
+				}
+				
+				var newX:Number = Group(event.currentTarget).mouseX;
+				var newY:Number = Group(event.currentTarget).mouseY; 
+				var stageY:Number = event.stageY;
+				
+				var column:uint = SlidesUtilities.getDropSpotColumn(newX,dragDropRedLine);
+				var row:uint = SlidesUtilities.getDropSpotRow(newY,stageY, dragDropRedLine);
+				
+				if ( row  < 1000 && column < 1000)
+				{
+					// TODO do all logic to see if red line should be permitted
+					dragDropRedLine.visible = true;	
+				}
+				else
+				{
+					dragDropRedLine.visible = false;
+				}
+				var newCustomSequenceNumber:uint;
+				if ( (event.dragInitiator as Object).hasOwnProperty("slide") )
+				{
+					slide = (event.dragInitiator as Object).slide;
+					
+					// we must not let this slide be dropped in between adjacent bundled slides if it is not in that adjacent bundle
+					newCustomSequenceNumber = SlidesUtilities.getCustomSequenceNumberOfNewDropSpot(event);
+					
+					if ( SlidesUtilities.slideIsBeingDroppedBetweenAdjacentBundledSlides(slide, newCustomSequenceNumber,_wantedSlidesAC.source) )
+					{
+						dragDropRedLine.visible = false;
+					}
+				}
+				if ( slideIsBreakingSequentialBundleRule(event, slide) )
+				{
+					dragDropRedLine.visible = false;
+				}
+				if ( SlidesUtilities.slideIsBundledSlide(slide))
+				{
+					if ( SlidesUtilities.bundledSlideIsInAdjacentBundle(slide))
+					{
+						if ( slideIsBreakingAdjacentBundleRule(slide,event) )
+						{
+							dragDropRedLine.visible = false;
+						}		
+					}
+					if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true)
+					{
+						// we make this adjacency locked = false here programtically
+						// really Malka should make it adjacency locked in admin
+						if ( slideIsBreakingAdjacentBundleRule(slide,event) )
+						{
+							dragDropRedLine.visible = false;
+						}		
+					} 
+				}
+				autoScroll(stageY); 
+			}
+			private function autoScroll(theY:Number):void{
+				if (theY > 680 )
+				{ 
+					vg.verticalScrollPosition += 10;
+				}
+				if ( theY < 100 )
+				{
+					vg.verticalScrollPosition -= 10;
+				}
+				
+			}
+			private function dragDropHandler(event:DragEvent):void {
+				var slide:Object;
+				if ( (event.dragInitiator as Object).hasOwnProperty("slide") )
+				{
+					slide = (event.dragInitiator as Object).slide;
+				}
+				if ( _presentationObject.sequence_locked && ( SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == false || slide.unwanted == true ))
+				{
+					return;
+				}
+				if ( _presentationObject.sequence_locked && SlidesUtilities.slideIsBundledSlide(slide) && SlidesUtilities.bundledSlideIsInAdjacentBundle(slide) ==  false )
+				{
+					return;
+				}
+				
+				dragDropRedLine.visible = false;
+				var i:uint;
+				var wantedSlide:Object;
+				var newCustomSequenceNumber:uint;
+				var slideWithNextHighestCustomSequence:Object;
+				var slideWithNextLowestCustomSequence:Object;
+				if ( (event.dragInitiator as Object).hasOwnProperty("slide") )
+				{
+					slide = (event.dragInitiator as Object).slide;
+					
+					// we must not let this slide be dropped in between adjacent bundled slides if it is not in that adjacent bundle
+					newCustomSequenceNumber = SlidesUtilities.getCustomSequenceNumberOfNewDropSpot(event);
+					
+					if ( SlidesUtilities.slideIsBeingDroppedBetweenAdjacentBundledSlides(slide, newCustomSequenceNumber,_wantedSlidesAC.source) )
+					{
+						Alert.show("This Slide is in an adjacent bundle and must be placed next to another slide in it's bundle","Alert");
+						//Alert.show("This slide cannot be placed between slides in an adjacent bundle","Alert");
+						return;
+					}
+					
+					if ( SlidesUtilities.slideIsBundledSlide(slide))
+					{
+						if ( SlidesUtilities.bundledSlideIsInAdjacentBundle(slide ))
+						{//adjacent
+							if ( SlidesUtilities.bundledSlideIsInSequentialBundle(slide))
+							{// adjacent sequential
+								if ( SlidesUtilities.bundledSlideIsInKeepWholeBundle(slide))
+								{// adjacent sequential keep whole
+									dropKeepWholeSequentialAdjacentBundle(slide,newCustomSequenceNumber,event);
+									return;
+								}else{
+									// adjacent sequential non keep whole
+									dropNonKeepWholeSequentialAdjacentBundle(slide,newCustomSequenceNumber,event);
+									return;
+								}																		
+							}else
+							{// adjacent non sequential
+								if ( SlidesUtilities.bundledSlideIsInKeepWholeBundle(slide))
+								{	// adjacent non sequential keep whole
+									dropKeepWholeNonSequentialAdjacentBundle(slide,newCustomSequenceNumber,event);
+									return;
+								}else{
+									// adjacent non sequential non keep whole
+									//so it is only ever one slide so skip to single slide rules
+									//	dropNonKeepWholeNonSequentialAdjacentBundle(slide,newCustomSequenceNumber,event);
+									//	return;
+								}			
+							}
+						}else if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true)
+						{
+							// we make this adjacency locked = false here programtically
+							// really Malka should make it adjacency locked in admin
+							//adjacent
+							if ( SlidesUtilities.bundledSlideIsInSequentialBundle(slide))
+							{// adjacent sequential
+								if ( SlidesUtilities.bundledSlideIsInKeepWholeBundle(slide))
+								{// adjacent sequential keep whole
+									dropKeepWholeSequentialAdjacentBundle(slide,newCustomSequenceNumber,event);
+									return;
+								}else{
+									// adjacent sequential non keep whole
+									dropNonKeepWholeSequentialAdjacentBundle(slide,newCustomSequenceNumber,event);
+									return;
+								}																		
+							}else
+							{// adjacent non sequential
+								if ( SlidesUtilities.bundledSlideIsInKeepWholeBundle(slide))
+								{	// adjacent non sequential keep whole
+									dropKeepWholeNonSequentialAdjacentBundle(slide,newCustomSequenceNumber,event);
+									return;
+								}else{
+									// adjacent non sequential non keep whole
+									//so it is only ever one slide so skip to single slide rules
+									//	dropNonKeepWholeNonSequentialAdjacentBundle(slide,newCustomSequenceNumber,event);
+									//	return;
+								}			
+							}
+						}else{//non adjacent bundle
+							if ( SlidesUtilities.bundledSlideIsInSequentialBundle(slide))
+							{// non adjacent sequential
+								if ( SlidesUtilities.bundledSlideIsInKeepWholeBundle(slide))
+								{// non adjacent sequential keep whole
+									if ( dropKeepWholeSequentialNonAdjacentBundle(slide,newCustomSequenceNumber,event))//returns true if single slide
+									{
+										// continue to single slide rules										
+									}else{
+										return;	
+									}
+								}else
+								{// non adjacent sequential non keep whole
+									//so it is only ever one slide so skip to single slide rules
+									//dropNonKeepWholeSequentialNonAdjacentBundle(slide,newCustomSequenceNumber,event);
+									//return;
+								}
+							}else
+							{// non adjacent non sequential
+								if ( SlidesUtilities.bundledSlideIsInKeepWholeBundle(slide))
+								{// non adjacent non sequential keep whole
+									dropKeepWholeNonSequentialNonAdjacentBundle(slide,newCustomSequenceNumber,event);
+									return;
+								}else
+								{// non adjacent non sequential non keep whole
+									//dropNonKeepWholeNonSequentialNonAdjacentBundle(slide,newCustomSequenceNumber,event);
+									//return;
+								}
+							}
+						}
+					}
+				}
+				else
+				{
+					throw new Error("what is being dragged?");
+				}
+				
+				
+				if ( slideIsBreakingSequentialBundleRule(event, slide) )
+				{
+					Alert.show("This slide cannot be placed out of it's bundle sequence","Alert");
+					return;
+				}
+				if ( SlidesUtilities.slideIsBundledSlide(slide))
+				{
+					if ( SlidesUtilities.bundledSlideIsInAdjacentBundle(slide))
+					{
+						if ( slideIsBreakingAdjacentBundleRule(slide,event) )
+						{
+							Alert.show("This slide is in an adjacent bundle and must be placed next to another slide in it's bundle","Alert");
+							return;	
+						}		
+					}
+					if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true)
+					{
+						// we make this adjacency locked = false here programtically
+						// really Malka should make it adjacency locked in admin
+						if ( slideIsBreakingAdjacentBundleRule(slide,event) )
+						{
+							Alert.show("This slide is in an adjacent bundle and must be placed next to another slide in it's bundle","Alert");
+							return;	
+						}		
+					} 
+				}
+				
+				
+				
+				
+				
+				//=================================================================
+				//=================================================================
+				// DROP IT LIKE ITS HOT
+				//=================================================================
+				//=================================================================
+				
+				Group(event.dragInitiator).x = 	Group(event.currentTarget).mouseX - ((event.dragInitiator as Group).width/2);
+				Group(event.dragInitiator).y = 	Group(event.currentTarget).mouseY- ((event.dragInitiator as Group).height/2);
+				//dirtyFlag = true;
+				
+				var newX:Number = Group(event.currentTarget).mouseX;
+				var newY:Number = Group(event.currentTarget).mouseY;
+				if ( event.dragInitiator is WantedSlideRenderer )
+				{
+					slide = WantedSlideRenderer(event.dragInitiator).slide;					
+					adjustCustomSequenceAndRepopulateWantedGroup(newX,newY,slide);
+				}
+				else if ( event.dragInitiator is UnwantedSlideRenderer)
+				{
+					
+					slide = UnwantedSlideRenderer(event.dragInitiator).slide; 
+					if ( SlidesUtilities.slideIsOptionalSlide( (event.dragInitiator as UnwantedSlideRenderer).slide ) )
+					{
+						slide.unwanted = false;
+						SlidesUtilities.removeSlideFromSlideArrayCollection(slide,_unwantedOptionalSlidesAC);
+						_wantedSlidesAC.addItem(slide);
+						if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+						{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,true);
+						}else{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,false);
+						}
+						
+					}
+					else
+					{
+						// they are all unwanted core
+						slide.unwanted = false;
+						SlidesUtilities.removeSlideFromSlideArrayCollection(slide,_unwantedCoreSlidesAC);
+						_wantedSlidesAC.addItem(slide);
+						if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+						{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,true);
+						}else{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,false);
+						}
+					}
+				}
+				populateWantedGroup();
+				populateUnwantedCoreGroup();// TODO change all like the below
+				optionalDecksManager.repopulateUnwantedOptionalGroups();//populateUnwantedOptionalGroups();
+			}
+			
+			private function slideIsBreakingSequentialBundleRule(event:DragEvent,slide:Object):Boolean{
+				
+				if ( SlidesUtilities.slideIsBundledSlide(slide) )
+				{
+					//if ( SlidesUtilities.bundledSlideIsInSequentialBundle(slide) && ! SlidesUtilities.bundledSlideIsInAdjacentBundle(slide) )
+					if ( SlidesUtilities.bundledSlideIsInSequentialBundle(slide) )
+					{
+						var newX:Number = Group(event.currentTarget).mouseX;
+						var newY:Number = Group(event.currentTarget).mouseY;
+						
+						var column:uint = SlidesUtilities.getDropSpotColumn(newX);
+						var row:uint = SlidesUtilities.getDropSpotRow(newY);
+						
+						if ( row  < 1000 && column < 1000)
+						{
+							var potentialCustomSequence:uint = column + ( row * 8 );
+						}
+						
+						var slidesWithSameBundleId:Array = new Array();
+						var i:uint;
+						for ( i = 0 ; i < _wantedSlidesAC.length; i++)
+						{
+							if ( _wantedSlidesAC.getItemAt(i).bundle_id == slide.bundle_id )
+							{
+								slidesWithSameBundleId.push(_wantedSlidesAC.getItemAt(i));
+							}
+						}
+						for ( i = 0; i < slidesWithSameBundleId.length; i++)
+						{
+							// this pot cust seq is higher than the cust seq of any other slide w same bundle id and higher seq num
+							var slideWSameId:Object = slidesWithSameBundleId[i];
+							if ( potentialCustomSequence > 	slideWSameId.customSequence )
+							{
+								if ( slideWSameId.bundle_position > slide.bundle_position )
+								{
+									return true;
+								}
+							}
+							// this pot cust seq is lower than the cust seq of any other slide w same bundle id and lower seq num
+							if ( potentialCustomSequence < 	slideWSameId.customSequence )
+							{
+								if ( slideWSameId.bundle_position < slide.bundle_position )
+								{
+									return true;
+								}
+							}
+						}
+					}
+				}
+				return false;			
+			}
+			private function slideIsBreakingAdjacentBundleRule(slide:Object,event:DragEvent):Boolean{
+				// SLIDE IS ADJACENT BUT NOT SEQUENTIAL
+				// it can only be dropped next to another slide in its bundle
+				
+				// so get the new custom sequence number
+				// find the slide with the next higher custom sequence number
+				// find the slide with the next lowest custom sequene number
+				// if either one is a slide in the same bundle we are good
+				// otherwise they get blasted with the alert below
+				// but if it is the only slide in the wanted group bundle we can skip this check
+				var otherWantedSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slide.bundle_id as uint,_wantedSlidesAC.source);
+				if ( ! otherWantedSlidesInThisBundle || otherWantedSlidesInThisBundle.length < 1 )
+				{
+					return false; // its only slide
+				}
+				var i:uint;
+				var slide:Object;
+				var wantedSlide:Object;
+				var newCustomSequenceNumber:uint;
+				var slideWithNextHighestCustomSequence:Object;
+				var slideWithNextLowestCustomSequence:Object;
+				
+				newCustomSequenceNumber = SlidesUtilities.getCustomSequenceNumberOfNewDropSpot(event);
+				for ( i = 0 ; i < _wantedSlidesAC.length; i++)
+				{
+					wantedSlide = _wantedSlidesAC.getItemAt(i);									
+					if ( wantedSlide.customSequence == newCustomSequenceNumber - 1 )
+					{
+						slideWithNextLowestCustomSequence = wantedSlide;
+					}
+					if ( wantedSlide.customSequence == newCustomSequenceNumber + 1 )
+					{
+						slideWithNextHighestCustomSequence = wantedSlide;
+					}
+				}
+				if ( ! slideWithNextHighestCustomSequence )
+				{
+					// its the last slide
+					if (  slideWithNextLowestCustomSequence.bundle_id == slide.bundle_id )
+					{
+						// we are good continue
+					}else{
+						return true;	
+					}
+				}else if ( ! slideWithNextLowestCustomSequence )
+				{
+					//its the first slide
+					if ( slideWithNextHighestCustomSequence.bundle_id == slide.bundle_id )
+					{
+						// we are good continue
+					}else{
+						return true;
+					}
+				}else if ( slideWithNextHighestCustomSequence.bundle_id == slide.bundle_id || slideWithNextLowestCustomSequence.bundle_id == slide.bundle_id )
+				{
+					// we are good continue
+				}else{
+					return true;
+				}
+				return false;
+			}
+			private function adjustCustomSequenceAndRepopulateWantedGroup(newX:Number,newY:Number,droppedSlide:Object):void{
+				
+				var column:uint = SlidesUtilities.getDropSpotColumn(newX);
+				var row:uint = SlidesUtilities.getDropSpotRow(newY);
+				
+				if ( row  < 1000 && column < 1000)
+				{
+					droppedSlide.customSequence = column + ( row * 8 );
+				}
+				else
+				{
+					Alert.show("didn't find a drop spot for this dropped slide");
+				}			
+				
+				_wantedSlidesAC.source.sortOn("customSequence",Array.NUMERIC);
+				_wantedSlidesAC.refresh();					
+				populateWantedGroup();	
+			}
+			
+			
+			//=========================================================================================
+			// UNWANTED CORE SLIDES
+			//=========================================================================================
+			
+			private function populateUnwantedCoreGroup():void{
+				unwantedCoreTile.init(_unwantedCoreSlidesAC,_loadedSlidesMap,_presentationObject); 
+				unwantedCoreTile.worker.populateUnwantedSlides();	
+				addUnwantedCoreTileListeners(unwantedCoreTile);
+			}
+			
+			//=========================================================================================
+			// BUNDLES
+			//=========================================================================================
+			
+			// figure out what the new custom sequence would be for the first one
+			private function dropSequentialAdjacentBundle(slide:Object,newCustomSequenceNumber:uint,event:DragEvent):void{
+				var arrayWhereAllTheOtherSlidesInThisBundleAre:Array;
+				var i:uint;
+				var wantedSlide:Object;
+				if ( slide.unwanted == true )
+				{
+					if ( SlidesUtilities.slideIsOptionalSlide(slide) )
+					{
+						slide.unwanted = false;
+						_wantedSlidesAC.addItem(slide);
+						SlidesUtilities.removeSlideFromSlideArrayCollection(slide,_unwantedOptionalSlidesAC);
+						arrayWhereAllTheOtherSlidesInThisBundleAre = _unwantedOptionalSlidesAC.source;
+					}else{
+						slide.unwanted = false;
+						_wantedSlidesAC.addItem(slide);
+						SlidesUtilities.removeSlideFromSlideArrayCollection(slide,_unwantedCoreSlidesAC);
+						arrayWhereAllTheOtherSlidesInThisBundleAre = _unwantedCoreSlidesAC.source;
+					}
+				}else{
+					arrayWhereAllTheOtherSlidesInThisBundleAre = _wantedSlidesAC.source;
+				}	
+				
+				var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slide.bundle_id as uint,_unsplitSlidesAC.source);
+				allSlidesInThisBundle.sortOn("bundle_position",Array.NUMERIC);
+				
+				//var slideInBundleWithLowestCustomSequenceNumber:Object = SlidesUtilities.getSlideInBundleWithLowestCustomSequenceNumber(allSlidesInThisBundle);
+				var slideInSequentialBundleWithLowestBundleSequenceNumber:Object = SlidesUtilities.getSlideInSequentialBundleWithLowestBundleSequenceNumber(allSlidesInThisBundle);
+				newCustomSequenceNumber = SlidesUtilities.getCustomSequenceNumberOfNewDropSpot(event);
+				
+				slideInSequentialBundleWithLowestBundleSequenceNumber.customSequence =  newCustomSequenceNumber;
+				
+				// then go through the slides and boost every slides custom seq after that by hundred 
+				// and put the sequenced slides consequetively
+				//allSlidesInThisBundle.sortOn("customSequence",Array.NUMERIC);
+				// then make sure all the others being dragged follow closely
+				for ( i = 0 ; i < allSlidesInThisBundle.length; i++)
+				{
+					var nextSlideInBundle:Object = allSlidesInThisBundle[i];
+					if ( nextSlideInBundle.unwanted == true )
+					{
+						if ( SlidesUtilities.slideIsOptionalSlide(nextSlideInBundle) )
+						{
+							nextSlideInBundle.unwanted = false;
+							_wantedSlidesAC.addItem(nextSlideInBundle);
+							SlidesUtilities.removeSlideFromSlideArrayCollection(nextSlideInBundle,_unwantedOptionalSlidesAC);
+						}else{
+							nextSlideInBundle.unwanted = false;
+							_wantedSlidesAC.addItem(nextSlideInBundle);
+							SlidesUtilities.removeSlideFromSlideArrayCollection(nextSlideInBundle,_unwantedCoreSlidesAC);
+						}
+					}
+					if ( nextSlideInBundle.sec_slide_id_plus_cust_pres_id == slideInSequentialBundleWithLowestBundleSequenceNumber.sec_slide_id_plus_cust_pres_id)
+					{
+						continue;
+					}else{
+						nextSlideInBundle.customSequence = newCustomSequenceNumber + i*0.01 + 0.01;
+					}
+				}
+				_wantedSlidesAC.source.sortOn("customSequence",Array.NUMERIC);
+				_wantedSlidesAC.refresh();	
+				populateWantedGroup();
+				populateUnwantedCoreGroup();
+				optionalDecksManager.repopulateUnwantedOptionalGroups();
+			}
+			
+			
+			
+			
+			
+			
+			// BUNDLES
+			//2
+			//3
+			//4
+			//5
+			//6
+			//7
+			//8
+			
+			
+			private function removeArrayOfSlidesFromArrayOfSlides(arrayOfSlidesToRemove:Array,arrayOfSlidesToRemoveFrom:ArrayCollection):void{
+				for ( var i:uint = 0; i < arrayOfSlidesToRemove.length;i++)
+				{
+					var slide:Object = arrayOfSlidesToRemove[i];
+					SlidesUtilities.removeSlideFromSlideArrayCollection(slide,arrayOfSlidesToRemoveFrom);
+				}
+			}
+			private function addArrayOfSlidesToWantedSlides(arrayOfSlidesToAdd:Array):void{
+				for ( var i:uint = 0; i < arrayOfSlidesToAdd.length;i++)
+				{
+					var slide:Object = arrayOfSlidesToAdd[i];
+					slide.unwanted = false;
+					_wantedSlidesAC.addItem(slide);
+				}
+			}
+			private function setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle:Array,newCustomSequenceNumber:uint,restoreOriginalSequence:Boolean):void{
+				var i:uint;
+				if ( restoreOriginalSequence )
+				{
+					SlidesUtilities.returnNonSequenceLockedBundleInSequenceLockedDeckToOriginalSequence(allSlidesInThisBundle,newCustomSequenceNumber);
+				}else{		
+					
+					// set their whole sequece
+					// set them consequtively at the drop spot
+					for ( i = 0 ; i < allSlidesInThisBundle.length; i++)
+					{
+						var nextSlideInBundle:Object = allSlidesInThisBundle[i];
+						nextSlideInBundle.customSequence = newCustomSequenceNumber + i*0.01 + 0.01;
+					}
+				}
+				_wantedSlidesAC.source.sortOn("customSequence",Array.NUMERIC);
+				_wantedSlidesAC.refresh();
+				
+			}
+			
+			private function setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide:Object,newCustomSequenceNumber:uint,restoreOriginalSequence:Boolean):void{
+				slide.customSequence = newCustomSequenceNumber;
+				if ( restoreOriginalSequence )
+				{
+					var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slide.bundle_id as uint, _wantedSlidesAC.source);
+					SlidesUtilities.returnNonSequenceLockedBundleInSequenceLockedDeckToOriginalSequence(allSlidesInThisBundle,newCustomSequenceNumber);
+				}
+				// return bundle to original sequence - see email Eric Rolfsen Sent: Thursday, July 18, 2013 3:16 PM
+				
+				_wantedSlidesAC.source.sortOn("customSequence",Array.NUMERIC);
+				_wantedSlidesAC.refresh();
+			}
+			
+			//1
+			private function dropKeepWholeSequentialAdjacentBundle(slide:Object,newCustomSequenceNumber:uint,event:DragEvent):void{
+				var i:uint;
+				trace("dropKeepWholeSequentialAdjacentBundle");
+				// so they are either all in or all out
+				var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slide.bundle_id as uint,_unsplitSlidesAC.source);
+				allSlidesInThisBundle.sortOn("bundle_position",Array.NUMERIC);
+				var mustRestoreOriginalSequence:Boolean = false;
+				// if the dropped slide is wanted they are all wanted
+				if ( slide.unwanted == false)
+				{
+					// they are all wanted
+				}
+				else
+				{
+					mustRestoreOriginalSequence = true;
+					if ( SlidesUtilities.slideIsOptionalSlide(slide))
+					{
+						// they are all optional
+						removeArrayOfSlidesFromArrayOfSlides(allSlidesInThisBundle,_unwantedOptionalSlidesAC);
+						addArrayOfSlidesToWantedSlides(allSlidesInThisBundle);
+					}
+					else
+					{
+						// they are all unwanted core
+						removeArrayOfSlidesFromArrayOfSlides(allSlidesInThisBundle,_unwantedCoreSlidesAC);
+						addArrayOfSlidesToWantedSlides(allSlidesInThisBundle);
+						
+					}
+				}
+				setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,mustRestoreOriginalSequence);
+				//dirtyFlag = true;
+				populateWantedGroup();
+				populateUnwantedCoreGroup();
+				optionalDecksManager.repopulateUnwantedOptionalGroups();				
+			}
+			//2
+			private function dropNonKeepWholeSequentialAdjacentBundle(slide:Object,newCustomSequenceNumber:uint,event:DragEvent):void{
+				//if they are wanted then they are all being dragged all together
+				// if they are unwanted then they may be one or multiple
+				trace("dropNonKeepWholeSequentialAdjacentBundle");
+				var i:uint;
+				var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slide.bundle_id as uint,_unsplitSlidesAC.source);
+				allSlidesInThisBundle.sortOn("bundle_position",Array.NUMERIC);
+				// if the dropped slide is wanted they are all wanted
+				if ( slide.unwanted == false)
+				{
+					// they are all wanted and being draged multiply
+					setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,false);
+				}
+				else
+				{
+					// it is a single slide
+					if ( slideIsBreakingAdjacentBundleRule(slide,event) )
+					{
+						Alert.show("This slide is in an adjacent bundle and must be placed next to another slide in it's bundle","Alert");
+						return;	
+					}
+					if ( slideIsBreakingSequentialBundleRule(event, slide) )
+					{
+						Alert.show("This slide cannot be placed out of it's bundle sequence","Alert");
+						return;
+					}
+					if ( SlidesUtilities.slideIsOptionalSlide(slide))
+					{
+						slide.unwanted = false;
+						SlidesUtilities.removeSlideFromSlideArrayCollection(slide,_unwantedOptionalSlidesAC);
+						_wantedSlidesAC.addItem(slide);
+						if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+						{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,true);
+						}else{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,false);
+						}
+					}
+					else
+					{
+						// they are all unwanted core
+						slide.unwanted = false;
+						SlidesUtilities.removeSlideFromSlideArrayCollection(slide,_unwantedCoreSlidesAC);
+						_wantedSlidesAC.addItem(slide);
+						if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+						{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,true);
+						}else{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,false);
+						}
+					}
+				}
+				//dirtyFlag = true;
+				populateWantedGroup();
+				populateUnwantedCoreGroup();
+				optionalDecksManager.repopulateUnwantedOptionalGroups();
+			}
+			//3
+			private function dropKeepWholeNonSequentialAdjacentBundle(slide:Object,newCustomSequenceNumber:uint,event:DragEvent):void{
+				trace("dropKeepWholeNonSequentialAdjacentBundle");
+				// they are either all in or they are all out
+				// they all lie next to each other
+				// place the first one at the drop spot and the others after
+				var i:uint;
+				var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slide.bundle_id as uint,_unsplitSlidesAC.source);
+				allSlidesInThisBundle.sortOn("bundle_position",Array.NUMERIC);
+				// if the dropped slide is wanted they are all wanted
+				if ( slide.unwanted == false)
+				{
+					// it is only one slide
+					if ( slideIsBreakingAdjacentBundleRule(slide,event) )
+					{
+						// #174 if it is an non adjacent non sequential bundle in sequence locked deck we prolly dont want this message
+						// dont show any message Alert.show("This slide is in an adjacent bundle and must be placed next to another slide in it's bundle","Alert");
+						return;	
+					}
+					setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,false);
+				}
+				else
+				{
+					if ( SlidesUtilities.slideIsOptionalSlide(slide))
+					{
+						// they are all optional
+						removeArrayOfSlidesFromArrayOfSlides(allSlidesInThisBundle,_unwantedOptionalSlidesAC);
+						addArrayOfSlidesToWantedSlides(allSlidesInThisBundle);
+						if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+						{
+							setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,true);
+						}else{
+							setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,false);
+						}
+					}
+					else
+					{
+						// they are all unwanted core
+						removeArrayOfSlidesFromArrayOfSlides(allSlidesInThisBundle,_unwantedCoreSlidesAC);
+						addArrayOfSlidesToWantedSlides(allSlidesInThisBundle);
+						if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+						{
+							setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,true);
+						}else{
+							setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,false);
+						}
+					}
+				}
+				//dirtyFlag = true;
+				populateWantedGroup();
+				populateUnwantedCoreGroup();
+				optionalDecksManager.repopulateUnwantedOptionalGroups();
+			}
+			//4						
+			/*private function dropNonKeepWholeNonSequentialAdjacentBundle(slide:Object,newCustomSequenceNumber:uint,event:DragEvent):void{
+			trace("dropNonKeepWholeNonSequentialAdjacentBundle");
+			// if there are any wanted ones 
+			// the one being dropped must be being dropped in a drop spot either 
+			// on the left or the right of an exisitng one
+			var i:uint;
+			var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slide.bundle_id as uint,_unsplitSlidesAC.source);
+			allSlidesInThisBundle.sortOn("bundle_position",Array.NUMERIC);
+			// if the dropped slide is wanted they are all wanted
+			if ( slide.unwanted == false)
+			{
+			// they are all wanted
+			setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber);
+			}
+			else
+			{
+			if ( SlidesUtilities.slideIsOptionalSlide(slide))
+			{
+			// this is single slide
+			slide.unwanted = false;
+			SlidesUtilities.removeSlideFromSlideArrayCollection(slide,_unwantedOptionalSlidesAC);
+			_wantedSlidesAC.addItem(slide);
+			setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber);
+			}
+			else
+			{
+			// this is single slide
+			slide.unwanted = false;
+			SlidesUtilities.removeSlideFromSlideArrayCollection(slide,_unwantedCoreSlidesAC);
+			_wantedSlidesAC.addItem(slide);
+			setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber);
+			}
+			}
+			
+			populateWantedGroup();
+			populateUnwantedCoreGroup();
+			optionalDecksManager.populateUnwantedOptionalGroups();
+			
+			}*/
+			//5
+			private function dropKeepWholeSequentialNonAdjacentBundle(slide:Object,newCustomSequenceNumber:uint,event:DragEvent):Boolean{
+				trace("dropKeepWholeSequentialNonAdjacentBundle");
+				// if the slide being dropped is unwanted then there are multiple slides
+				// drop em as if they were sequential and adjacent
+				// otherwise ignore
+				var i:uint;
+				var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slide.bundle_id as uint,_unsplitSlidesAC.source);
+				allSlidesInThisBundle.sortOn("bundle_position",Array.NUMERIC);
+				var mustRestoreSequence:Boolean = false;
+				// if the dropped slide is wanted they are all wanted
+				if ( slide.unwanted == false)
+				{
+					// then this is only one slide
+					return true;	// let the single slide rules work
+				}
+				else
+				{
+					if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+					{
+						mustRestoreSequence = true;
+					}
+					
+					if ( SlidesUtilities.slideIsOptionalSlide(slide))
+					{
+						// they are all optional
+						removeArrayOfSlidesFromArrayOfSlides(allSlidesInThisBundle,_unwantedOptionalSlidesAC);
+						addArrayOfSlidesToWantedSlides(allSlidesInThisBundle);
+					}
+					else
+					{
+						// they are all unwanted core
+						removeArrayOfSlidesFromArrayOfSlides(allSlidesInThisBundle,_unwantedCoreSlidesAC);
+						addArrayOfSlidesToWantedSlides(allSlidesInThisBundle);
+					}
+				}
+				//dirtyFlag = true;
+				setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,mustRestoreSequence);
+				populateWantedGroup();
+				populateUnwantedCoreGroup();
+				optionalDecksManager.repopulateUnwantedOptionalGroups();
+				return false;
+			}
+			//6 this rule should never be used
+			// it should always only be one slide being dragged so single slide rules are enough
+			/*private function dropNonKeepWholeSequentialNonAdjacentBundle(slide:Object,newCustomSequenceNumber:uint,event:DragEvent):void{
+			//this should already be done
+			trace("dropNonKeepWholeSequentialNonAdjacentBundle");
+			var i:uint;
+			var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slide.bundle_id as uint,_unsplitSlidesAC.source);
+			allSlidesInThisBundle.sortOn("bundle_position",Array.NUMERIC);
+			// if the dropped slide is wanted they are all wanted
+			if ( slide.unwanted == false)
+			{
+			// they are all wanted
+			}
+			else
+			{
+			if ( SlidesUtilities.slideIsOptionalSlide(slide))
+			{
+			// they are all optional
+			removeArrayOfSlidesFromArrayOfSlides(allSlidesInThisBundle,_unwantedCoreSlidesAC);
+			addArrayOfSlidesToWantedSlides(allSlidesInThisBundle);
+			}
+			else
+			{
+			// they are all unwanted core
+			removeArrayOfSlidesFromArrayOfSlides(allSlidesInThisBundle,_unwantedCoreSlidesAC);
+			addArrayOfSlidesToWantedSlides(allSlidesInThisBundle);
+			}
+			}
+			setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber);
+			populateWantedGroup();
+			populateUnwantedCoreGroup();
+			optionalDecksManager.populateUnwantedOptionalGroups();
+			
+			}*/
+			//7
+			private function dropKeepWholeNonSequentialNonAdjacentBundle(slide:Object,newCustomSequenceNumber:uint,event:DragEvent):void{
+				// if the slide being dropped is unwanted then there are multiple slides being dropped
+				// drop the first one at the drop spot and 
+				// remove the rest from the unwanted
+				// add them to the wanted
+				//
+				trace("dropKeepWholeNonSequentialNonAdjacentBundle");
+				var i:uint;
+				var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slide.bundle_id as uint,_unsplitSlidesAC.source);
+				// if the dropped slide is wanted they are all wanted
+				if ( slide.unwanted == false)
+				{
+					// only one slide
+					setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,false);
+				}
+				else
+				{
+					if ( SlidesUtilities.slideIsOptionalSlide(slide))
+					{
+						// they are all optional
+						removeArrayOfSlidesFromArrayOfSlides(allSlidesInThisBundle,_unwantedOptionalSlidesAC);
+						addArrayOfSlidesToWantedSlides(allSlidesInThisBundle);
+						if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+						{
+							setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,true);
+						}else{
+							setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,false);
+						}
+					}
+					else
+					{
+						// they are all unwanted core
+						removeArrayOfSlidesFromArrayOfSlides(allSlidesInThisBundle,_unwantedCoreSlidesAC);
+						addArrayOfSlidesToWantedSlides(allSlidesInThisBundle);
+						if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+						{
+							setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,true);
+						}else{
+							setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,false);
+						}
+					}
+				}
+				//dirtyFlag = true;
+				populateWantedGroup();
+				populateUnwantedCoreGroup();
+				optionalDecksManager.repopulateUnwantedOptionalGroups();
+				
+			}
+			//8
+			private function dropNonKeepWholeNonSequentialNonAdjacentBundle(slide:Object,newCustomSequenceNumber:uint,event:DragEvent):void{
+				trace("dropNonKeepWholeNonSequentialNonAdjacentBundle");
+				// wtf? 
+				// why is this even a bundle?
+				// ah is this because one fo them has to be in there?
+				// TODO
+				// on removing any slide check to see if it is the last of a mandatory bundle
+			}
+			
+			//9  Non Keepwhole version of the NonSequential Adjacent
+			private function dropNonKeepWholeNonSequentialAdjacentBundle(slide:Object,newCustomSequenceNumber:uint,event:DragEvent):void
+			{	//if they are wanted then they are all being dragged all together
+				//if they are unwanted then they may be one or multiple
+				trace("dropNonKeepWholeNonSequentialAdjacentBundle");
+				var i:uint;
+				var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slide.bundle_id as uint, _unsplitSlidesAC.source);
+				allSlidesInThisBundle.sortOn("bundle_position",Array.NUMERIC);
+				
+				//if the dropped slide is wanted they are all wanted
+				if(slide.unwanted == false)
+				{
+					//they are all wanted and being dragged multiply
+					
+					setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber, false);
+				}//end slide wanted test
+					
+				else
+				{
+					//it is a single slide
+					if(slideIsBreakingAdjacentBundleRule(slide,event))
+					{
+						Alert.show("This slide is in the adjacent bundle and must be placed next to another slide in it's bundle","Alert");
+						return;
+					}
+					if(SlidesUtilities.slideIsOptionalSlide(slide))
+					{
+						slide.unwanted = false;
+						
+						SlidesUtilities.removeSlideFromSlideArrayCollection(slide,_unwantedOptionalSlidesAC);
+						_wantedSlidesAC.addItem(slide);
+						
+						if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+						{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,true);
+						}else{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,false);
+						}
+					}
+					else
+					{
+						//they are all unwanted core
+						slide.unwanted = false;   //ensures that one slide is removed from the unwanted tab
+						SlidesUtilities.removeSlideFromSlideArrayCollection(slide,_unwantedCoreSlidesAC);
+						_wantedSlidesAC.addItem(slide);
+						
+						if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+						{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,true);
+						}else{
+							setOnlyDroppedSlideWithNewDropSpotSequenceAndRefesh(slide,newCustomSequenceNumber,false);
+						}
+						
+					}
+					
+				}//end else
+				//dirtyFlag = true;
+				populateWantedGroup();
+				populateUnwantedCoreGroup();
+				optionalDecksManager.repopulateUnwantedOptionalGroups();
+			}
+			
+			
+			//=========================================================================================
+			// WANTED SLIDE HANDLERS
+			//=========================================================================================
+			
+			private function onSwapEitherOrSlide(e:Event):void{
+				
+				// ASSUMPTIONS : ( from requirements obviously ) 1 ) its a sequence locked deck 2) the swapee is in an optional deck
+				
+				// take the slide
+				// look in the map
+				var wsr:WantedSlideRenderer = e.currentTarget as WantedSlideRenderer;
+				var slide:Object = wsr.slide;
+				var slideOriginalSSID:Number = slide.sec_slide_id_plus_cust_pres_id - ( _presentationObject.custom_presentation_id * 10000);
+				if ( combosMap[slideOriginalSSID] != null || combosMap[slide.bundle_id] != null ) 
+				{
+					// 1. ) swap out the selected slide
+					if ( SlidesUtilities.slideIsBundledSlide(slide) )
+					{
+						removeWantedSlideBundle(e);				
+					}else{
+						continueRemoveWantedSlideWhichIsNotABundle(e);
+					}
+					// 2. ) swap in the associated slide / bundle
+					
+					var associatedSlideOrBundleId:Object = ( combosMap[slideOriginalSSID] ? combosMap[slideOriginalSSID] : combosMap[slide.bundle_id]);
+					var allBundlesFromDB:Array = dbModel.getWhere(dbModel.systemSQLConnection, 'bundles','bundle_id',associatedSlideOrBundleId);
+					if ( allBundlesFromDB && allBundlesFromDB.length > 0 )
+					{
+						// we know that the slides we are swapping in are a bundle
+						var ses:SlidesEvent = new SlidesEvent(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP);
+						var bundleId:int = associatedSlideOrBundleId as int;
+						var slidesToAdd:Array = new Array();
+						for ( var i: uint =0 ; i < _unsplitSlidesAC.length; i++)
+						{
+							if (  (_unsplitSlidesAC[i].bundle_id as int) == bundleId )
+							{
+								var slideToAdd:Object = _unsplitSlidesAC.getItemAt(i);
+								slidesToAdd.push(slideToAdd);	
+								
+								//we have added it to the wanted side but we still have to remove it from the unwanted side
+								if ( SlidesUtilities.slideIsOptionalSlide(slideToAdd) )
+								{
+									slideToAdd.unwanted = false;							
+									SlidesUtilities.removeSlideFromSlideArrayCollection(slideToAdd,_unwantedOptionalSlidesAC);
+									optionalDecksManager.repopulateUnwantedOptionalGroups();
+								}else{
+									slide.unwanted = false;
+									_wantedSlidesAC.addItem(slideToAdd);
+									SlidesUtilities.removeSlideFromSlideArrayCollection(slideToAdd,_unwantedCoreSlidesAC);
+									unwantedCoreTile.repopulateCore(_unwantedCoreSlidesAC);
+								}
+							}
+						}
+						ses.slides =  slidesToAdd;
+						onAddSlideToWantedGroup(ses);
+												
+						
+					}else{
+						// we know that we are slipping in a single slide
+						var se:SlidesEvent = new SlidesEvent(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP);
+						for ( var i: uint =0 ; i < _unsplitSlidesAC.length; i++)
+						{
+							if (  _unsplitSlidesAC[i].sec_slide_id_plus_cust_pres_id - ( 10000 * _presentationObject.custom_presentation_id ) == associatedSlideOrBundleId )
+							{
+								var slideToAdd:Object = _unsplitSlidesAC.getItemAt(i);
+								break;
+							}
+						}
+						se.slide = slideToAdd;
+						onAddSlideToWantedGroup(se);
+						
+						//we have added it to the wanted side but we still have to remove it from the unwanted side
+						if ( SlidesUtilities.slideIsOptionalSlide(slideToAdd) )
+						{
+							slideToAdd.unwanted = false;							
+							SlidesUtilities.removeSlideFromSlideArrayCollection(slideToAdd,_unwantedOptionalSlidesAC);
+							optionalDecksManager.repopulateUnwantedOptionalGroups();
+						}else{
+							slide.unwanted = false;							
+							SlidesUtilities.removeSlideFromSlideArrayCollection(slideToAdd,_unwantedCoreSlidesAC);
+							unwantedCoreTile.repopulateCore(_unwantedCoreSlidesAC);
+						}
+					}
+				}
+			}
+			
+			private function onRemoveWantedSlide(e:Event):void{
+				doKeepWholeRule(e);
+			}
+			private function doKeepWholeRule(eventFromWantedSlide:Event):void{
+				var wantedRenderer:WantedSlideRenderer = (eventFromWantedSlide.currentTarget as WantedSlideRenderer);
+				var slide:Object = wantedRenderer.slide;
+				if ( SlidesUtilities.slideIsBundledSlide(slide) && SlidesUtilities.bundledSlideIsInKeepWholeBundle(slide) )
+				{
+					openRemoveBundleSlidePopup(eventFromWantedSlide);
+				}else{
+					if ( slide.swap_required )
+					{
+						onSwapEitherOrSlide(eventFromWantedSlide);
+					}else{
+						continueRemoveWantedSlideWhichIsNotABundle(eventFromWantedSlide);	
+					}
+				}
+			}
+			private function openRemoveBundleSlidePopup(eventFromWantedSlide:Event):void{
+				if ( dbModel.dontShowBundleAlertAgain )
+				{
+					//removeWantedSlideBundle(eventFromWantedSlide);
+					
+					var wsr:WantedSlideRenderer = eventFromWantedSlide.currentTarget as WantedSlideRenderer;
+					var slide:Object = wsr.slide;
+					if ( slide.swap_required)	// bug fixed right here
+					{
+						onSwapEitherOrSlide(eventFromWantedSlide);
+					} else{
+						removeWantedSlideBundle(eventFromWantedSlide);	
+					}
+					return;
+				}
+				var removeBundlePopup:PopupAlert = PopUpManager.createPopUp(this,PopupAlert,true) as PopupAlert;
+				
+				removeBundlePopup.setWidthAndHeight(400,200);				
+				removeBundlePopup.bodyTextArea.text = DatabaseModel.MESSAGE_32;
+				
+				removeBundlePopup.cancelButton.visible = false;
+				removeBundlePopup.dontShowAgainCheckBox.visible = true;
+				removeBundlePopup.yesButton.addEventListener(MouseEvent.CLICK, function(e:Event):void{
+					PopUpManager.removePopUp(removeBundlePopup);
+					dbModel.dontShowBundleAlertAgain = removeBundlePopup.dontShowAgainCheckBox.selected;
+					var wsr:WantedSlideRenderer = eventFromWantedSlide.currentTarget as WantedSlideRenderer;
+					var slide:Object = wsr.slide;
+					if ( slide.swap_required)	// bug fixed right here
+					{
+						onSwapEitherOrSlide(eventFromWantedSlide);
+					} else{
+						removeWantedSlideBundle(eventFromWantedSlide);	
+					}
+				});
+				removeBundlePopup.noButton.visible = true;
+				removeBundlePopup.noButton.addEventListener(MouseEvent.CLICK, function(e:Event):void{
+					dbModel.dontShowBundleAlertAgain = removeBundlePopup.dontShowAgainCheckBox.selected;
+					PopUpManager.removePopUp(removeBundlePopup);					
+				});
+				PopUpManager.centerPopUp(removeBundlePopup);
+				
+			}
+			private function continueRemoveWantedSlideWhichIsNotABundle(e:Event):void{
+				// if it is the last slide in a mandatory bundle then remove it
+				dirtyFlag = true;				
+				var wantedRenderer:WantedSlideRenderer = (e.currentTarget as WantedSlideRenderer);
+				for ( var i: uint =0 ; i < _wantedSlidesAC.length; i++)
+				{
+					if (  (_wantedSlidesAC[i].sec_slide_id_plus_cust_pres_id as int) == wantedRenderer.slide.sec_slide_id_plus_cust_pres_id )
+					{
+						/* commenting below which they don't want ... or do they ?
+						// do the sequence unlocked bundle in sequence locked deck re-sort to original sequence here
+						if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(wantedRenderer.slide) == true )
+						{
+						var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(wantedRenderer.slide.bundle_id,_wantedSlidesAC.source);
+						SlidesUtilities.returnNonSequenceLockedBundleInSequenceLockedDeckToOriginalSequence(allSlidesInThisBundle);
+						}
+						*/
+						
+						var slide:Object = _wantedSlidesAC.removeItemAt(i);
+						slide.unwanted = true;
+						addSlideToUnwantedGroupAndRepopulate(slide);
+						trace("removing slide w customSequence = " + slide.customSequence + " and sequence : " + slide.sequence);
+						break;
+					}
+				}				
+				populateWantedGroup();	
+			}
+			public function addSlideToUnwantedGroupAndRepopulate(slide:Object):void{
+				if ( SlidesUtilities.slideIsOptionalSlide(slide ))
+				{
+					_unwantedOptionalSlidesAC.addItem(slide);
+					optionalDecksManager.repopulateUnwantedOptionalGroups(); 
+				}
+				else
+				{
+					_unwantedCoreSlidesAC.addItem(slide);
+					_unwantedCoreSlidesAC.source.sortOn("sequence", Array.NUMERIC);
+					unwantedCoreTile.repopulateCore(_unwantedCoreSlidesAC);
+				}				
+			}
+			public function addSlidesToUnwantedGroupAndRepopulate(slides:Array):void{
+				for ( var i : uint = 0 ; i < slides.length; i++)
+				{
+					var slide:Object = slides[i];
+					if ( SlidesUtilities.slideIsOptionalSlide(slide ))
+					{
+						_unwantedOptionalSlidesAC.addItem(slide);
+						//optionalDecksManager.addOptionalSlideThatsBecomeUnwanted(slide);
+						optionalDecksManager.repopulateUnwantedOptionalGroups();
+					}
+					else
+					{
+						_unwantedCoreSlidesAC.addItem(slide);						
+					}				
+				}
+				//_unwantedCoreSlidesAC.source.sortOn("sequence", Array.NUMERIC);
+				unwantedCoreTile.repopulateCore(_unwantedCoreSlidesAC);
+			}
+			
+			private function removeWantedSlideBundle(eventFromWantedSlide:Event):void{
+				dirtyFlag = true;
+				var wantedRenderer:WantedSlideRenderer = (eventFromWantedSlide.currentTarget as WantedSlideRenderer);
+				var slide:Object = wantedRenderer.slide;
+				
+//				if ( slide.swap_required )
+//				{										
+//					onSwapEitherOrSlide(eventFromWantedSlide);					
+//				}
+				var bundleId:int = slide.bundle_id;
+				var slidesToRemove:Array = new Array();
+				for ( var i: uint =0 ; i < _wantedSlidesAC.length; i++)
+				{
+					if (  (_wantedSlidesAC[i].bundle_id as int) == bundleId )
+					{
+						var slideToRemove:Object = _wantedSlidesAC.getItemAt(i);
+						slidesToRemove.push(slideToRemove);						
+					}
+				}
+				removeBundledSlidesAllTogether(slidesToRemove);
+				//				for ( var j:uint = 0 ; j < slidesToRemove.length; j++)
+				//				{
+				//					var slideRemoving:Object = slidesToRemove[j];
+				//					removeBundledSlidesAllTogether(slideRemoving)
+				//				}				
+				populateWantedGroup();			
+			}
+			private function removeBundledSlidesAllTogether(slidesToRemove:Array):void{
+				var slidesToRepopulate:Array = new Array();
+				for ( var j:uint = 0 ; j < slidesToRemove.length; j++)
+				{
+					var slideToRemove:Object = slidesToRemove[j];
+					
+					for ( var i: uint =0 ; i < _wantedSlidesAC.length; i++)
+					{
+						if (  (_wantedSlidesAC[i].sec_slide_id_plus_cust_pres_id as int) == slideToRemove.sec_slide_id_plus_cust_pres_id as int)
+						{
+							var slide:Object = _wantedSlidesAC.removeItemAt(i);
+							slide.unwanted = true;
+							slidesToRepopulate.push(slide);				
+							break;
+						}
+					}
+				}
+				addSlidesToUnwantedGroupAndRepopulate(slidesToRepopulate);		
+			}
+			//=========================================================================================
+			// PREVIEW WANTED SLIDE
+			//=========================================================================================
+			private function onPreviewWantedSlide(e:Event):void{
+				var slide:Object = (e.currentTarget as WantedSlideRenderer).slide;
+				previewingSlideObject = slide;
+				var bitmap:Bitmap = (e.currentTarget as WantedSlideRenderer).thumbnailImage.source as Bitmap;
+				var notes:String = dbModel.getSlideNotesFromSlideId(slide.slide_id);				
+				if ( slideIsTitleSlide(slide) )
+				{
+					previewTitleSlide(slide,bitmap,notes);
+					return;
+				}
+				previewingSlideHGroup.visible = true;
+				previewingSlideWindowImage.source = bitmap;
+				
+				if ( notes )
+				{
+					previewingSlideNotesTextArea.htmlText = notes;
+				}
+			}
+			private function onDisplayInfoOfWantedSlide(e:Event):void{
+				var lockedSlideAlert:PopupAlert = PopupAlert(PopUpManager.createPopUp(this, PopupAlert, true));
+				lockedSlideAlert.buttonsHGroup.visible = false;
+				lockedSlideAlert.okButton.visible = true;
+				lockedSlideAlert.titleLabel.text = "Slide Info";
+				lockedSlideAlert.titleLabel.visible = true;
+				
+				var minPopupHeight:int = 90;
+				lockedSlideAlert.setWidthAndHeight(350,minPopupHeight);
+				// info about the slide
+				var slide:Object = (e.target as WantedSlideRenderer).slide;
+				var infoText:String= "";
+				if ( slide.is_mandatory )
+				{
+					minPopupHeight += 35;
+					lockedSlideAlert.setWidthAndHeight(350,minPopupHeight);
+					infoText = "This is a required slide\n";
+				}
+				else if ( ! slide.is_mandatory && ! slide.is_swappable )
+				{
+					minPopupHeight += 35;
+					lockedSlideAlert.setWidthAndHeight(350,minPopupHeight);
+					infoText = "This is an optional slide\n";
+				}
+
+				if ( SlidesUtilities.slideIsBundledSlide( slide ) )
+				{
+					infoText += "This slide is part of a bundle\n";
+					minPopupHeight += 35;
+					lockedSlideAlert.setWidthAndHeight(350,minPopupHeight);
+					
+					if(SlidesUtilities.bundledSlideIsInKeepWholeBundle(slide))
+					{
+						infoText+="Bundled slides must remain together\n";
+					}
+					
+					// first is it part of a V4 non sequence locked bundle in a sequerfriedmnce locked deck?	
+					if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slide) == true )
+					{
+						if (SlidesUtilities.bundledSlideIsInAdjacentBundle(slide) ==  true )
+						{
+							infoText += "The order of slides in this bundle can be changed\n";
+							minPopupHeight += 35;
+							lockedSlideAlert.setWidthAndHeight(350,minPopupHeight);
+						}
+					}
+					
+					
+				}
+				
+				// V6 
+				if ( slide.is_swappable )
+				{
+					infoText += "This is an optional replacement slide";
+					minPopupHeight += 35;
+					lockedSlideAlert.setWidthAndHeight(350,minPopupHeight);
+				}
+				
+				lockedSlideAlert.bodyTextArea.text = infoText;
+				PopUpManager.centerPopUp(lockedSlideAlert);				
+			}
+			//=========================================================================================
+			// TITLE SLIDE 
+			//=========================================================================================
+			private function pickOutTheTitleSlide():void{
+				var lowestSequenceNumber:int = 10000;
+				for ( var i:uint = 0 ; i < _wantedSlidesAC.length; i++)
+				{
+					if ( _wantedSlidesAC.getItemAt(i).sequence <= lowestSequenceNumber)
+					{
+						lowestSequenceNumber = _wantedSlidesAC.getItemAt(i).sequence;
+						_titleSlideSecSlideIdPlusCustPresId = _wantedSlidesAC.getItemAt(i).sec_slide_id_plus_cust_pres_id;
+					}
+				}
+			}
+			private function previewTitleSlide(slide:Object, bitmap:Bitmap, notes:String):void{
+				
+				previewingSlideHGroup.visible = true;
+				previewingSlideWindowImage.source = bitmap;
+				previewingSlideNotesTextArea.htmlText = notes;				
+				initTheTitleWidget(previewingSlideWindowImage,true);
+			}
+			private function zoomInOnTitleSlide(bitmap:Bitmap):void{				
+				zoomedInSlideWindowImage.visible = true;
+				zoomedInSlideWindowImage.source = bitmap;
+				initTheTitleWidget(zoomedInSlideWindowImage,false);
+			}
+			private function initTheTitleWidget(uic:UIComponent,takeParent:Boolean):void{ 
+				
+				titleSlideWidget.makeTitleSlideWidgetMatchDimensionsOfUIC(uic,takeParent,_presentationObject.presentation_id as int, _presentationObject.custom_presentation_id as int);
+				titleSlideWidget.visible = true;
+				if ( ! titleSlideWidget.hasDirtyData() ) titleSlideWidget.loadTheTileSlideFromTheDatabase();
+				titleSlideWidget.addEventListener(SlidesEvent.TITLE_SLIDE_CLOSED, function (se:SlidesEvent):void{
+					if ( se.dirtyFlag ) dirtyFlag = true;
+					hidePreviewZoomAndTitleStuff();
+				});
+			}
+			private function slideIsTitleSlide(slide:Object):Boolean{
+				if ( slide.sec_slide_id_plus_cust_pres_id == _titleSlideSecSlideIdPlusCustPresId )
+				{
+					return true;
+				}else return false;
+			}
+			
+			//=========================================================================================
+			// ZOOM IN ON ANY SLIDE 
+			//=========================================================================================
+			
+			private function onZoomInOnSlide(se:SlidesEvent):void{
+				var slide:Object = se.slide;
+				var bitmap:Bitmap = se.bitmap;
+				if ( slide && slideIsTitleSlide(slide) )
+				{
+					zoomInOnTitleSlide(bitmap);
+					return;
+				}
+				zoomedInSlideWindowImage.visible = true;
+				zoomedInSlideWindowImage.source = bitmap;				
+			}		
+			//=========================================================================================
+			//=========================================================================================
+			// 					SAVING THE PRESENTATION
+			//=========================================================================================
+			//=========================================================================================
+			//=========================================================================================
+			// IMPLICIT SAVING OF THE PRESENTATION
+			//=========================================================================================
+			private function doInitialSaveOfCustomPresentation():void{
+				if ( ! presentationHasCustomId())
+				{
+					dbModel.getNewCustomPresentationIdAndCreatedDate(_presentationObject); 
+				}				
+				if ( ! _presentationObject.custom_title || _presentationObject.custom_title.length < 1 ) 
+				{
+					Alert.show("Saving custom presentation with no custom_title","ERROR");
+					throw new Error("saving custom presentation with no custom_title");
+				}
+								
+				_presentationObject.user_last_saved = (new Date().time) / 1000;
+				
+				dbModel.insertASinglePresentationObjectIntoPresentationsTable(_presentationObject,dbModel.customSQLConnection);
+				
+				var sectionArray:Array = dbModel.getWhere(dbModel.systemSQLConnection,"sections","presentation_id",_presentationObject.presentation_id);
+				if ( sectionArray != null && sectionArray.length > 0 )
+				{
+					var section:Object = sectionArray[0];	// TODO cause there is only one section
+					var sectionId:Object = section.section_id;
+				}
+				var slidesToSave:Array = _unsplitSlidesAC.source;
+				for ( var i:uint = 0 ; i < slidesToSave.length; i++)
+				{
+					var slideToSave:Object = slidesToSave[i];					
+					slideToSave.sec_slide_id_plus_cust_pres_id = slideToSave.section_slide_id + ( _presentationObject.custom_presentation_id * 10000);
+					if ( slideToSave.customSequence > 0 )
+					{
+						// we are good
+					}else{
+						slideToSave.customSequence = 0;
+					}
+					if ( slideToSave.optional_deck_id != null && slideToSave.optional_deck_id > 0 )
+					{
+						// we are good
+					}else{
+						slideToSave.optional_deck_id  = 0;
+					}
+				}
+				dbModel.insertAnArrayOfSlidesIntoCustomSlidesTable(slidesToSave, sectionId, _presentationObject.custom_presentation_id);
+				// NOOO never save the title slide on implicit save
+				//				if ( titleSlideWidget.hasDirtyData() ){
+				//					titleSlideWidget.saveTheTitleSlide();
+				//				}
+				dirtyFlag = false;
+				storeTheInitialSequenceOfTheSlidesForDeterminingDirtyFlag();
+				
+				// we set the is_pushed to false now and back to true on a successful response
+				dbModel.updateCustomPresentationIsPushed(_presentationObject.guid , false);
+				
+				pushCustomDeck( true );
+			}	
+			//=========================================================================================
+			// EXPLICIT SAVING OF THE PRESENTATION
+			//=========================================================================================
+			private function saveTheCustomPresentation():void{
+				if ( ! presentationHasCustomId())
+				{
+					dbModel.getNewCustomPresentationIdAndCreatedDate(_presentationObject); 
+				}				
+				if ( ! _presentationObject.custom_title || _presentationObject.custom_title.length < 1 ) throw new Error("saving custom presentation with no custom_title"); 
+				
+				_presentationObject.user_last_saved = (new Date().time) / 1000;
+				
+				dbModel.insertASinglePresentationObjectIntoPresentationsTable(_presentationObject,dbModel.customSQLConnection);
+				
+				
+				var slidesToSaveArray:Array = _unsplitSlidesAC.source; // TODO if its totally referentail we are good :) ? combineTheWantedAndUnwantedSlideArrays();
+				//slidesToSaveArray = addTheOptionalSlidesWithTheirOptionalDeckIdPopulated(slidesToSaveArray);
+				dbModel.reInsertAnArrayOfSlidesIntoSlidesTable(slidesToSaveArray, _presentationObject.custom_presentation_id);
+				
+				if ( titleSlideWidget.hasDirtyData() ){
+					titleSlideWidget.saveTheTitleSlide();
+				}
+				dirtyFlag = false;
+				storeTheInitialSequenceOfTheSlidesForDeterminingDirtyFlag();
+				
+				//==========================================================================================
+				// V 6.0 PUSH AND PULL HERE
+				//==========================================================================================
+				
+				// we set the is_pushed to false now and back to true on a successful response
+				dbModel.updateCustomPresentationIsPushed(_presentationObject.guid , false);
+				
+				pushCustomDeck( );
+				//testPush();
+				
+				//  ======   PUSH !!  ========= 
+			}	
+			
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			// V 6.0 PUSH AND PULL HERE
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			//==========================================================================================
+			
+			//--------------**-----
+			
+			private function pushCustomDeck(  onInitialSave:Boolean = false ) : void {
+				
+				var data: Object = new Object();
+				data.m = LoginPanel.m;
+				data.format = "flash";
+								
+				var customDeck:Object = makeCustomDeckObject( onInitialSave );
+
+				var custDecksArray:Array = new Array();
+				custDecksArray.push(customDeck);
+				
+				var jsonData:String = JSON.stringify(custDecksArray);
+				data.custom_decks = jsonData;
+				
+				var pusher:HTTPService = new HTTPService();
+				
+				var user:Object = dbModel.getLastUserFromUsersTable()[0];
+				var userHash:String = user.user_hash;
+								
+				pusher.url = LoginPanel.BETA_OR_PROD_URL + "library/api/6.0/user/"+userHash+"/store_custom_decks/";  // mock userhash - e2510fc8343a4808a6cb6a3ea1c087a4
+				pusher.method = "POST";
+				
+				pusher.addEventListener(ResultEvent.RESULT, pushServiceResultHandler);
+				pusher.addEventListener(FaultEvent.FAULT, pushServiceFaultHandler);
+				
+				pusher.send(data);
+			}
+			
+			private function makeArrayOfSlideSectionIds( onInitialSave:Boolean = false) : ArrayCollection {
+
+				var ssids:ArrayCollection = new ArrayCollection();
+//				if ( onInitialSave )
+//				{
+//					for ( var j:uint = 0 ; j < _unsplitSlidesAC.length; j++ ) {
+//						var ss1:Object = _unsplitSlidesAC.getItemAt(j);
+//						var ssid1:int = ss1.section_slide_id;
+//						if ( ssid1 > 0 )
+//						{
+//							// we are good - continue
+//						}else{
+//							// this is a pre V6 saved customized deck
+//							// work backwards from sec_slide_id_plus_cust_pres_id to get section_slide_id
+//							//ssid = SlidesUtilities.getSectionSlideIdFromSecSlideIdPlusCustPresId( ss );
+//							// we have the section_slide_id in our hands here so we are good
+//							ssid1 = ss1.sec_slide_id_plus_cust_pres_id - ( _presentationObject.custom_presentation_id * 10000);
+//						}
+//						
+//						ssids.addItem(ssid1);
+//					}
+//					return ssids;
+//				}
+				
+				for ( var i:uint = 0 ; i < _wantedSlidesAC.length; i++ ) {
+					var ss:Object = _wantedSlidesAC.getItemAt(i);
+					var ssid:int = ss.section_slide_id;
+					if ( ssid > 0 )
+					{
+						// we are good - continue
+					}else{
+						// this is a pre V6 saved customized deck
+						// work backwards from sec_slide_id_plus_cust_pres_id to get section_slide_id
+						//ssid = SlidesUtilities.getSectionSlideIdFromSecSlideIdPlusCustPresId( ss );
+						// we have the section_slide_id in our hands here so we are good
+						ssid = ss.sec_slide_id_plus_cust_pres_id - ( _presentationObject.custom_presentation_id * 10000);
+					}
+					
+					ssids.addItem(ssid);
+				}
+				return ssids;
+			}
+			
+			private function makeCustomDeckObject( onInitialSave:Boolean = false ):Object{
+				//var now:Number = (new Date().time) / 1000;
+				
+				var customDeck : Object = new Object();
+				customDeck.uuid = _presentationObject.guid;
+				customDeck.deck_name = _presentationObject.custom_title;
+				customDeck.deck_id = _presentationObject.presentation_id;	
+				
+				customDeck.created_date = Number(_presentationObject.date_created) / 1000;
+				// for now we are taking the updates_last_applied from the users timestamp that they logged in with and applied all updates
+				var allUsers:Array = dbModel.getAll(dbModel.systemSQLConnection, "users" );
+				if ( ! allUsers || allUsers.length != 1 )
+				{
+					throw new Error("wring number of users in users table");
+				}
+				var ula:Number = allUsers[0].last_updated.toString();
+				if ( ! ula || ula == 0 ) throw new Error("wrong last_updated field stored in users table");
+				customDeck.updates_last_applied = ula;	// ( (new Date().time) / 1000 ) - 10000;	// DANGER MOCK FOR TEST  ula;	 
+				
+				
+				//var tsw:TitleSlideWidget = new TitleSlideWidget();
+				
+				customDeck.presenters_name = ( SlidesUtilities.titleSlideNameHasBeenChanged(titleSlideWidget.chosenName) ? titleSlideWidget.chosenName : null);
+				
+				//get unix timestamp from chosen data string
+				var dateString:String = titleSlideWidget.chosenDateString;
+				
+
+				var presentersTimestamp:Number;
+				
+//				if ( dateString == tsw.chosenDateString )
+//				{
+//					// the user has not edited the date
+//					presentersTimestamp = null;
+//				}else{
+//					//convert date string to unixtime
+//					//var date:Date = DateField.stringToDate(dateString,"YYYY-MM-DD");
+////					var date:Date = DateField.stringToDate(dateString.toString() ,'MMM DD, YYYY');
+////					if ( ! date )
+////					{		
+////						// V6 TODO
+////						throw new Error(" couldn't understand the datttthey : " + dateString);						
+////					}
+//					//presentersTimestamp = date.time;
+					presentersTimestamp = titleSlideWidget.chosenTimestamp / 1000;
+				//}
+				
+
+				customDeck.presenters_date = ( presentersTimestamp > 0 ? presentersTimestamp : null);
+				customDeck.user_last_saved = null; // we will store a real timestamp when the push succeeds / fails
+				
+				var slideSectionIds:ArrayCollection = makeArrayOfSlideSectionIds( onInitialSave );
+				customDeck.slide_section_ids = slideSectionIds.source;
+				
+				if ( slideSectionIds.length < 1 )
+				{
+					Alert.show("We are attempting to save a custom deck with no slides in it","Alert");
+					throw new Error("We are attempting to save a custom deck with no slides in it");
+				}
+				
+				return customDeck;
+				
+			}
+			
+			//==========================================================================================
+			// V 6.0 PUSH AND PULL HERE
+			//==========================================================================================
+			
+			private function  pushServiceResultHandler(re:ResultEvent):void{
+				trace("saved customized deck pushed to cloud   " + re.message);
+				var realTimestamp :Number;
+				var res:Object = JSON.parse(re.result as String);
+				if ( res && res.creation_success == true )
+				{
+					var malkasTimestamp:Number = res.timestamp;
+					dbModel.updateCustomPresentationIsPushed(_presentationObject.guid , true);
+					dbModel.updateCustomPresentationUserLastSaved(_presentationObject.guid, malkasTimestamp.toString());					
+				}else{
+					//insertNow
+					var now:Number = (new Date().time) / 1000;
+					dbModel.updateCustomPresentationUserLastSaved(_presentationObject.guid, now.toString());
+				}								
+			}
+			private function  pushServiceFaultHandler(fe:FaultEvent):void{
+				trace("boo   "+ fe.message);
+				var now:Number = (new Date().time) / 1000;
+				dbModel.updateCustomPresentationUserLastSaved(_presentationObject.guid, now.toString());
+			}
+			
+			
+			
+			private function presentationHasCustomId():Boolean{
+				if ( _presentationObject.hasOwnProperty("custom_presentation_id"))
+				{
+					if ( _presentationObject.custom_presentation_id > 0 )
+					{
+						return true;
+					}
+				}
+				return false;
+			}
+			
+			//=========================================================================================
+			// LISTENERS
+			//=========================================================================================
+			private function addUnwantedCoreTileListeners(unwantedCoreTile:UnwantedCoreTile):void{
+				unwantedCoreTile.addEventListener(SlidesEvent.ZOOM_IN_ON_SLIDE,onZoomInOnSlide)
+				unwantedCoreTile.addEventListener(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP, onAddSlideToWantedGroup) 
+			}
+			private function addOptionalDeckMagagerListeners():void{
+				optionalDecksManager.addEventListener(SlidesEvent.ZOOM_IN_ON_SLIDE,onZoomInOnSlide);
+				optionalDecksManager.addEventListener(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP, onAddSlideToWantedGroup);
+				optionalDecksManager.addEventListener(SlidesEvent.OPTIONAL_DECK_HIDDEN, function(se:SlidesEvent):void{
+					if ( ! optionalDecksManager._unwantedOptionalTilesAC ) return;
+					var newHeight:Number = 0;
+					for ( var i:uint = 0; i < optionalDecksManager._unwantedOptionalTilesAC.length; i++)
+					{
+						newHeight += 65;// 50 is height of tile + 15 vertical gap	
+					}					
+					optionalDecksManager.height = newHeight; 
+				});				
+				
+				optionalDecksManager.addEventListener(SlidesEvent.OPTIONAL_DECK_SHOWN, function(se:SlidesEvent):void{
+					//trace("customizeView new optionalDeck.height = " + se.newHeight);
+					var newHeight:Number = se.newHeight + 75;
+					optionalDecksManager.height = newHeight; 
+				});	
+				
+				optionalDecksManager.addEventListener(SlidesEvent.SWAP_EITHER_OR_BUNDLE, swapOutEitherOrBundleOrSlide);
+				
+			}
+			
+			private function swapOutEitherOrBundleOrSlide(se:SlidesEvent):void{
+				//make error here - we need to pass back and forwared the denotion bundle letters also
+				// so the slide on this se event is swappable.
+				// lets put this sucker in the and find what slides we have to take out...
+				var slideOrBundleId:Number;
+				if ( SlidesUtilities.slideIsBundledSlide(se.slide) )
+				{
+					slideOrBundleId = combosMap[se.slide.bundle_id];
+					// see if this id pulls a bundle out of bundles table
+					// if it does gather all other slides from this bundle and make them unwanted
+					// if it doesn't then pull the slide that has the same slide section id and make that unwanted
+				}else{
+					slideOrBundleId = combosMap[se.slide.sec_slide_id_plus_cust_pres_id - ( _presentationObject.custom_presentation_id * 10000)];
+				}
+				
+				if ( SlidesUtilities.idIsBundleId(slideOrBundleId) )
+				{
+					//removeWantedSlideBundle(
+					removeBundledSlidesAllTogether(SlidesUtilities.getAllSlidesWithBundleId(slideOrBundleId, _wantedSlidesAC.source));
+					populateWantedGroup();
+				}else{
+
+					var actualSlide:Object;
+					// go through all wanted slides and get the slide whose sec_slide_id_cust+pres+id matches and remove that slide from the wanted slide ac and repopulate					
+					
+					for ( var i: uint =0 ; i < _wantedSlidesAC.length; i++)
+					{
+						var wantedSlide:Object = _wantedSlidesAC.getItemAt(i);
+						var wantedSlidessidpcpid:Number = Number(wantedSlide.sec_slide_id_plus_cust_pres_id);
+						if (  wantedSlidessidpcpid == (slideOrBundleId + ( _presentationObject.custom_presentation_id * 10000)) )
+						{
+							actualSlide = _wantedSlidesAC.removeItemAt(i);
+							actualSlide.unwanted = true;
+							break;
+						}
+					}
+					populateWantedGroup();
+					if ( ! actualSlide )
+					{
+						// this was not a required swap bundle and its mate has been removed and is not in the wanted section - so dont do squat						
+						
+					}else{
+						addSlideToUnwantedGroupAndRepopulate(actualSlide);
+					}
+					
+				}
+				
+				//denoteBundles(); no but actually do swap the denotion text
+			}
+			
+			
+			//=========================================================================================
+			// WORKER FUNCTIONS
+			//=========================================================================================
+			
+			private function cleanTheSlate():void{
+				if ( unwantedCoreTile.worker ) unwantedCoreTile.worker.cleanSlate(); 
+				optionalDecksManager.cleanSlate();								
+				wantedGroup.removeAllElements();
+			}			
+			private function splitSlidesIntoWantedAndUnwantedCoreAndUnwantedOptionalGroups():void{
+				for ( var i :uint = 0 ; i < _unsplitSlidesAC.length; i++)
+				{
+					var unsplitSlide:Object = _unsplitSlidesAC.getItemAt(i);
+					//trace("slide id : " + unsplitSlide.slide_id + " sec_slide_id_plus_cust_pres_id : " + unsplitSlide.sec_slide_id_plus_cust_pres_id);
+					if ( unsplitSlide.unwanted )
+					{
+						if ( SlidesUtilities.slideIsOptionalSlide(unsplitSlide))
+						{
+							_unwantedOptionalSlidesAC.addItem(unsplitSlide);						
+						}
+						else
+						{
+							_unwantedCoreSlidesAC.addItem(unsplitSlide);							
+						}
+					}
+					else
+					{
+						_wantedSlidesAC.addItem(unsplitSlide);
+					}
+				}
+			}	
+			
+			private function onAddSlideToWantedGroup(se:SlidesEvent):void{		
+				var slideBecomingWanted:Object = se.slide;	
+				if ( ! slideBecomingWanted )
+				{
+					var slidesBecomingWanted:Array = se.slides;
+					onAddSlidesToWantedGroup(slidesBecomingWanted);
+					return;
+				}
+				slideBecomingWanted.unwanted = false;
+				dirtyFlag = true;
+				_wantedSlidesAC.addItem(slideBecomingWanted);
+				
+				// V4 bundle rule here setAllSlidesWithNewDropSpotSequenceAndRefesh
+				if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slideBecomingWanted) == true )
+				{
+					trace("we are now in the V4 non sequential bundle in sequentially locked deck scenario");
+					slideBecomingWanted.customSequence = 10000;
+					var newCustomSequenceNumber:uint = calculateWhatTheCustomSequenceShouldBeBasedOnSequence(slideBecomingWanted);
+					var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slideBecomingWanted.bundle_id,_wantedSlidesAC.source);
+					setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,true);
+				}else if ( _presentationObject.sequence_locked )
+				{
+					// if they had a slide and removed it and add it back it would have the same customSequence number as the slide that took its position
+					// on the wanted side. Since its a sequence locked deck and this slide is not in a sequentially unlocked bundle we want it back in its original sequence
+					SlidesUtilities.setCustomSequenceNumberOfSlideBeingAddedToWantedSideBasedOnOriginalSequenceNumber(slideBecomingWanted,_wantedSlidesAC.source);
+				}
+				trace("dropping slide w customSequence = " + slideBecomingWanted.customSequence + " sequence : " + slideBecomingWanted.sequence);
+				_wantedSlidesAC.source.sortOn("customSequence", Array.NUMERIC);
+				populateWantedGroup();
+			}
+			private function onAddSlidesToWantedGroup(slidesArray:Array):void{	
+				for ( var i:uint = 0 ; i < slidesArray.length; i++)
+				{
+					var slideBecomingWanted:Object = slidesArray[i];
+					slideBecomingWanted.unwanted = false;
+					_wantedSlidesAC.addItem(slideBecomingWanted); 
+				}
+				dirtyFlag = true;	
+				// V4 Bundle rule here setAllSlidesWithNewDropSpotSequenceAndRefesh
+				if ( _presentationObject.sequence_locked && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slideBecomingWanted) == true )
+				{
+					trace("we are now in the V4 non sequential bundle in sequentially locked deck scenario");
+					var slideInBundleWithLowestSequenceNumber:Object = SlidesUtilities.getSlideInBundleWithLowestSequenceNumber(slidesArray);
+					var newCustomSequenceNumber:uint = calculateWhatTheCustomSequenceShouldBeBasedOnSequence(slideInBundleWithLowestSequenceNumber);
+					var allSlidesInThisBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slidesArray[0].bundle_id,_wantedSlidesAC.source);
+					setAllSlidesWithNewDropSpotSequenceAndRefesh(allSlidesInThisBundle,newCustomSequenceNumber,true);
+				}else if ( _presentationObject.sequence_locked )
+				{
+					// if they had a slide and removed it and add it back it would have the same customSequence number as the slide that took its position
+					// on the wanted side. Since its a sequence locked deck and this slide is not in a sequentially unlocked bundle we want it back in its original sequence
+					SlidesUtilities.setCustomSequenceNumberOfSlidesBeingAddedToWantedSideBasedOnOriginalSequenceNumber(slidesArray,_wantedSlidesAC.source);
+				}
+				populateWantedGroup();
+			}
+			private function calculateWhatTheCustomSequenceShouldBeBasedOnSequence(slide:Object):uint{
+				if ( _presentationObject.sequence_locked == false ) throw new Error("this function is only for sequence locked decks");
+				
+				// so the wanted slides have an original sequence number that has not been touched ( its a sequence locked deck )
+				// now we want to find the slide right before it in the original sequence
+				// and return its custom sequence plus 1
+				var slidesOriginalSequenceNumber:uint = slide.sequence;
+				var slideWithNextLowestSequenceNumber:Object = SlidesUtilities.getSlideWithNextLowestSequenceNumber(slidesOriginalSequenceNumber, _wantedSlidesAC.source);
+				// now hopefully we can just return here BUT although asanine it is possible for there to be
+				// TWO non-sequentially locked bundles right next to each other in a sequence locked deck
+				// and if there are then we have to place the wanted slide(s) after the highest customSequence number
+				// of the other non-sequentially locked bundle						
+				if ( SlidesUtilities.slideIsBundledSlide(slideWithNextLowestSequenceNumber) && slideWithNextLowestSequenceNumber.bundle_id != slide.bundle_id && SlidesUtilities.isSlideInNonSequentiallyLockedBundle(slideWithNextLowestSequenceNumber))
+				{
+					// get the slide in this bundle with the highest custom id	
+					var allSlidesInBundle:Array = SlidesUtilities.getAllSlidesWithBundleId(slideWithNextLowestSequenceNumber.bundle_id,_wantedSlidesAC.source);
+					var slideWHighestCustomSequence:Object = SlidesUtilities.getSlideInBundleWithHighestCustomSequenceNumber(allSlidesInBundle);
+					return slideWHighestCustomSequence.customSequence + 1;	
+				}else{
+					return slideWithNextLowestSequenceNumber.customSequence + 1;	
+				}						 
+				return 0;
+			}
+			private function addSlideToWantedGroupFromDragDrop(slideBecomingWanted:Object):void{
+				slideBecomingWanted.unwanted = false;
+				dirtyFlag = true;
+				_wantedSlidesAC.addItem(slideBecomingWanted);
+			}
+			private function denoteBundles():void{
+				lastDenotationNumber = 64;
+				denotationMap = new Object();
+				var i:uint;
+				var slide:Object
+				for ( i = 0 ; i < _wantedSlidesAC.length; i++)
+				{
+					slide = _wantedSlidesAC.getItemAt(i);
+					if ( SlidesUtilities.slideIsBundledSlide(slide))
+					{
+						if ( denotationMap[slide.bundle_id] == null )
+						{
+							denotationMap[slide.bundle_id] = getNextBundleDenotationLetter();
+							slide.denotationText = denotationMap[slide.bundle_id];
+						}else{
+							slide.denotationText = denotationMap[slide.bundle_id];
+						}
+						// DANGER
+						//slide.denotationText = "jabba";
+					}
+				}
+				for ( i = 0 ; i < _unwantedCoreSlidesAC.length; i++)
+				{
+					slide = _unwantedCoreSlidesAC.getItemAt(i);
+					if ( SlidesUtilities.slideIsBundledSlide(slide))
+					{
+						if ( denotationMap[slide.bundle_id] == null )
+						{
+							denotationMap[slide.bundle_id] = getNextBundleDenotationLetter();
+							slide.denotationText = denotationMap[slide.bundle_id];
+						}else{
+							slide.denotationText = denotationMap[slide.bundle_id];
+						}
+					}
+				}
+				for ( i = 0 ; i < _unwantedOptionalSlidesAC.length; i++)
+				{
+					slide = _unwantedOptionalSlidesAC.getItemAt(i);
+					if ( SlidesUtilities.slideIsBundledSlide(slide))
+					{
+						if ( denotationMap[slide.bundle_id] == null )
+						{
+							denotationMap[slide.bundle_id] = getNextBundleDenotationLetter();
+							slide.denotationText = denotationMap[slide.bundle_id];
+						}else{
+							slide.denotationText = denotationMap[slide.bundle_id];
+						}
+					}
+				}
+			}
+			private function denoteBundlesV6():void{
+				lastDenotationNumber = 64;
+				denotationMap = new Object();
+				var i:uint;
+				var slide:Object
+				
+				for ( i = 0 ; i < _unsplitSlidesAC.length; i++)
+				{
+					slide = _unsplitSlidesAC.getItemAt(i);
+					if ( SlidesUtilities.slideIsBundledSlide(slide))
+					{
+						if ( denotationMap[slide.bundle_id] == null )
+						{
+							denotationMap[slide.bundle_id] = getNextBundleDenotationLetter();
+							slide.denotationText = denotationMap[slide.bundle_id];
+						}else{
+							slide.denotationText = denotationMap[slide.bundle_id];
+						}
+					}
+				}
+			}
+			private function getNextBundleDenotationLetter():String{
+				lastDenotationNumber++;
+				if ( lastDenotationNumber > 64+26)
+				{
+					//					var twoLetter:String = String.fromCharCode(lastDenotationNumber-26);
+					//					twoLetter += String.fromCharCode(lastDenotationNumber-26);
+					//					return twoLetter;
+					var lowercase:String = String.fromCharCode(lastDenotationNumber-26).toLowerCase();
+					return lowercase;
+					
+				}else{
+					return String.fromCharCode(lastDenotationNumber);	
+				}				
+			}
+			private function getTheFirstSlideBitmap():Bitmap{
+				if ( dbModel.presentationIsCustomPresentation(_presentationObject))
+				{					
+					var results:Array = DatabaseModel.getInstance().getWhere(DatabaseModel.getInstance().customSQLConnection,"title_slide","custom_presentation_id",_presentationObject.custom_presentation_id as int);
+					if ( results && results.length > 0 )
+					{
+						var titleSlideBitmapForPrint:Bitmap = getTitleSlideBitmapForPrint();
+						return titleSlideBitmapForPrint;						
+					}					
+				}
+				return _loadedSlidesMap[_wantedSlidesAC[0].slide_id] as Bitmap;				
+			}
+			private function setTheTitleAndMaybeDoImplicitSave():void{
+				if ( _presentationObject.hasOwnProperty("custom_title") && _presentationObject.custom_title.length > 0 )
+				{				
+					_presentationTitle = _presentationObject["custom_title"] as String;
+					if ( ! dbModel.presentationIsCustomPresentation(_presentationObject) )
+					{// doesn't have custom id yet so first do an implicit save
+						doInitialSaveOfCustomPresentation();		
+					}
+				}
+				else
+				{
+					_presentationTitle = _presentationObject["presentation_name"] as String;	
+				}
+			}
+			private function hidePreviewZoomAndTitleStuff():void{
+				previewingSlideObject = null;
+				previewingSlideHGroup.visible = false;
+				zoomedInSlideWindowImage.visible = false;
+				titleSlideWidget.visible = false;
+			}
+			private function getTheLoadedBitmap(slideId:Object):Bitmap{
+				var bitmap:Bitmap = _loadedSlidesMap[slideId] as Bitmap;
+				if ( ! bitmap ) throw new Error("ERROR");//bitmap = _loadedOptionalSlidesMap[slideId] as Bitmap;
+				return bitmap;
+			}		
+			//=========================================================================================
+			// BUTTON HANDLERS
+			//=========================================================================================
+			protected function saveBtn_clickHandler(event:MouseEvent):void
+			{
+				saveTheCustomPresentation();
+			}
+			protected function backButton_clickHandler(event:MouseEvent):void
+			{
+				if ( dirtyFlag )
+				{
+					// SAVE CHANGES POPUP
+					var savePopup:PopupAlert = PopUpManager.createPopUp(this,PopupAlert,true) as PopupAlert;
+					
+					savePopup.setWidthAndHeight(400,160);				
+					savePopup.bodyTextArea.text = DatabaseModel.MESSAGE_30;
+					savePopup.yesButton.addEventListener(MouseEvent.CLICK, function(e:Event):void{
+						PopUpManager.removePopUp(savePopup);
+						saveBtn_clickHandler(null);
+						dispatchEvent(new Event("CLOSE_VIEW"));
+						
+					});
+					savePopup.noButton.visible = true;
+					savePopup.noButton.addEventListener(MouseEvent.CLICK, function(e:Event):void{
+						PopUpManager.removePopUp(savePopup);
+						dispatchEvent(new Event("CLOSE_VIEW"));
+						
+					});
+					PopUpManager.centerPopUp(savePopup);
+				}
+				else
+				{
+					dispatchEvent(new Event("CLOSE_VIEW"));
+					
+				}
+			}
+			//=========================================================================================
+			// PRINT
+			//=========================================================================================
+			
+			protected function printBtn_clickHandler(event:MouseEvent):void
+			{
+				//				var slideIdsArray:Array = makeArrayOfWantedSlideIds();
+				//				useHttpService(slideIdsArray);
+				checkIfThereHaveBeenUpdatesToPrintablePDFs();
+			}
+			private function makeArrayOfWantedSlideIds():Array{
+				var slideIdsArray:Array = new Array();
+				for ( var i:uint = 0 ; i < _wantedSlidesAC.length; i++)
+				{
+					var slideObject:Object = _wantedSlidesAC.getItemAt(i);
+					var slideId:uint = slideObject.slide_id;
+					slideIdsArray.push(slideId);
+				}
+				return slideIdsArray;
+			}
+			private function checkIfThereHaveBeenUpdatesToPrintablePDFs():void{
+				var slideIdsArray:Array = makeArrayOfWantedSlideIds();
+				var urlz:String = LoginPanel.BETA_OR_PROD_URL + "library/pdf_available/";
+				urlz += "?slides=";
+				for ( var i:uint = 0 ; i < slideIdsArray.length; i++)
+				{
+					if ( i == (slideIdsArray.length - 1))
+					{
+						urlz += slideIdsArray[i].toString()
+					}
+					else{
+						urlz += slideIdsArray[i].toString() + ",";
+					}
+				}
+				urlz += "&timestamp=" + dbModel.logIinTimeUnixTimeStamp;
+				trace("checking for updates to printable_pdf - url = " + urlz);
+				var urlRequest:URLRequest = new URLRequest(urlz);
+				var loader:URLLoader = new URLLoader();
+				loader.addEventListener(Event.COMPLETE, checkIfPrintablePDFUpdatesHandler);
+				loader.addEventListener(IOErrorEvent.IO_ERROR, httpFault);
+				loader.load(urlRequest);
+			}
+			private function checkIfPrintablePDFUpdatesHandler(event:Event):void{
+				var result:Object = JSON.parse( (event.target as URLLoader).data);
+				if ( result && result.hasOwnProperty("is_available") && result.is_available)
+				{
+					continueToPrintServiceCall();
+				}
+				else{
+					Alert.show("Updates have been made to the slide notes. Please log out and log back in to download the updates.","Alert");
+				}
+				
+			}
+			public function continueToPrintServiceCall():void {
+				
+				// TODO : now we first need to check if there have been updates
+				// to any of the slides that we are intending to print.
+				// So we are going to make a service call that returns a boolean,
+				// passing all the slide ids as we presently do but also sending the timestamp
+				
+				// /library/pdf_available/?slides=xxx,xxx,xxx&timestamp=1366537075
+				
+				var slideIdsArray:Array = makeArrayOfWantedSlideIds();
+				service = new HTTPService();
+				//service.destination = "http://beta.otsukaweb.visual-a.com/library/presentation_pdf/";
+				//	var urlz:String = "http://keypoint.ctlsgroup.com/library/presentation_pdf/";
+				var urlz:String = LoginPanel.BETA_OR_PROD_URL + "library/presentation_pdf/";
+				urlz += "?slides=";
+				for ( var i:uint = 0 ; i < slideIdsArray.length; i++)
+				{
+					if ( i == (slideIdsArray.length - 1))
+					{
+						urlz += slideIdsArray[i].toString()
+					}
+					else{
+						urlz += slideIdsArray[i].toString() + ",";
+					}
+				}
+				navigateToURL(new URLRequest(urlz));
+			}
+			
+			public function httpFault(event:Event):void {
+				if ( event is FaultEvent)
+				{
+					var faultstring:String = (event as FaultEvent).fault.faultString;
+					Alert.show("Error connecting to server : " + faultstring,"Alert");	
+				}else if ( event is IOError )
+				{
+					var IOErrorString:String = (event as IOErrorEvent).text;
+					Alert.show("Error connecting to server : " + IOErrorString,"Alert");	
+				}
+			}
+			protected function printPreviewingSlide_clickHandler(event:MouseEvent):void
+			{			
+				var imageToPrint:Bitmap;
+				var notesWithHTML:String = previewingSlideNotesTextArea.htmlText;
+				var printPDF:PrintPDFsCommand = new PrintPDFsCommand();
+				printPDF.loadAPDF(previewingSlideObject);
+			}
+			private function getTitleSlideBitmapForPrint():Bitmap{
+				var bitmap:Bitmap = _loadedSlidesMap[_wantedSlidesAC[0].slide_id] as Bitmap;
+				titleSlideWidget.visible = true;
+				titleSlideWidget.putTheSlideAsBackDrop(bitmap, _presentationObject.custom_presentation_id);
+				var pic:Bitmap = titleSlideWidget.getTitleSlideBitmap();
+				titleSlideWidget.visible = false;
+				return pic;
+			}
+			private function compileArrayOfSlideNotes():Array{
+				var compiledArray:Array = new Array();
+				for ( var i :uint =0 ; i < _wantedSlidesAC.length; i++)
+				{
+					var notes:String = dbModel.getSlideNotesFromSlideId(_wantedSlidesAC[i].slide_id);
+					compiledArray.push(notes);
+				}
+				return compiledArray;
+			}
+			private function compileArrayOfSlidesToPrint():Array{
+				var compiledArray:Array = new Array();
+				compiledArray.push(getTheFirstSlideBitmap());
+				for ( var i :uint =1 ; i < _wantedSlidesAC.length; i++)
+				{
+					var bitmap:Bitmap = _loadedSlidesMap[_wantedSlidesAC[i].slide_id] as Bitmap;
+					if ( ! bitmap ) throw new Error("ERROR"); //bitmap = _loadedOptionalSlidesMap[_wantedSlidesAC[i].slide_id] as Bitmap;
+					compiledArray.push(bitmap);
+				}
+				return compiledArray;
+			}
+			
+			//=========================================================================================
+			// GETTERS AND SETTERS
+			//=========================================================================================
+			
+			private function get dirtyFlag():Boolean{
+				return _dirtyFlag;
+			}
+			private function set dirtyFlag(value:Boolean):void{
+				_dirtyFlag = value;
+				if ( value )
+				{
+					saveBtn.setStyle('skinClass',DirtySaveButtonSkin);
+				}
+				else
+				{
+					saveBtn.setStyle('skinClass',CleanSaveButtonSkin);
+				}
+			}
+			
+			//////=====================================
+			//Getters and Setters
+			//=-========================================
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+			protected function group1_dragOverHandler(event:DragEvent):void
+			{
+				// TODO Auto-generated method stub
+				//trace("group1 makes red line invisible");
+				dragDropRedLine.visible = false;
+			}	
+			
+			/* 	private function optionalTab(e:Event):void{
+			trace("optional Button Passing the is function ???? "+dbModel._optionalActive +"  "+dbModel._optionalActive);
+			
+			if(dbModel._optionalActive){
+			unwantedOptionalButton.visible = true;
+			}
+			else {
+			unwantedOptionalButton.visible = false;
+			}
+			} */
+			
+			/*
+			protected function helpButton_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				dbModel._activateKeys=false;
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.HELP_LIST;
+				dispatchEvent(slidesEvent);
+				
+			}
+			*/
+			
+		]]>
+	</fx:Script>
+	
+	<!-- =====================  BACKGROUND FILLS   ======================= -->
+	<!-- orignal number for rect 1 :300 x:0 and rect 2 : 724 x:300 -->
+	<s:Rect width="315" height="725" x="0" y="45">
+		<s:fill>
+			<s:SolidColor color="0xeeeeee"/>
+		</s:fill>
+	</s:Rect>
+	
+	<s:Rect width="724" height="725" x="315" y="45">
+		<s:fill>
+			<s:SolidColor color="0xddeeff"/>
+		</s:fill>
+	</s:Rect>
+	
+	<s:Line id="dragDropRedLine" height="100" visible="false" >
+		<s:stroke>
+			<s:SolidColorStroke color="red" weight="20" alpha="0.5" />
+		</s:stroke>
+	</s:Line>
+	
+	<!-- ========================================================================== -->
+	<!-- ========================================================================== -->
+	<!-- =====================  WANTED AND UNWANTED GROUPS  ======================= -->
+	<!-- ========================================================================== -->
+	<!-- ========================================================================== -->
+	
+	
+	<s:Scroller id="unwantedScrollBar"
+				width="315" height="725"
+				x="5" 	y="45"
+				horizontalScrollPolicy="off"
+				verticalScrollPolicy="auto"
+				>
+		
+		<s:Group id="unwantedGroup"
+				 width="295" 
+				 y="45"
+				 >
+			<view:UnwantedCoreTile id="unwantedCoreTile" 
+								   width="285"	
+								   
+								   />
+			
+			<view:OptionalDecksManager id="optionalDecksManager"
+									   width="285"
+									   height="100%"
+									   y="{unwantedCoreTile.unwantedSlidesVGroup.contentHeight+50}" 
+									   
+									   />
+			
+		</s:Group>
+	</s:Scroller>
+	
+	
+	
+	
+	<!-- Unwanted Core Tiles -->
+	<!--	<mx:VBox id="unwantedGroup"
+	width="295" height="700"
+	x="10" 	y="45"
+	
+	>
+	<view:UnwantedCoreTile id="unwantedCoreTile" 
+	width="295"	
+	/>
+	
+	</mx:VBox>-->
+	
+	
+	
+	<!-- unwanted Option Button -->
+	
+	<!-- unwanted Optional Deck nested within the Scroller -->
+	<!--	<s:Scroller  height="500" id="optionScrollerDeck"
+	
+	y="{unwantedCoreTile.unwantedSlidesVGroup.contentHeight + 70 + 45}"
+	>-->
+	
+	<!--		<s:Group id="wrapperGroup">-->
+	
+	<!-- 	<view:OptionalDecksManager id="optionalDecksManager"
+	width="285"
+	y="{unwantedCoreTile.unwantedSlidesVGroup.contentHeight + 70 + 45}"
+	
+	
+	/>-->
+	<!--</s:Group>-->
+	
+	
+	<!--	</s:Scroller>-->
+	
+	
+	<!--<s:Button id="unwantedOptionalButton" 
+	width="100" height ="100"
+	y="{unwantedCoreTile.unwantedSlidesVGroup.contentHeight + 70 + 45}"
+	x="10"
+	visible="{(_optionalActive ? true:false)}"/>-->
+	
+	<!-- visible="{dbModel._optionalActive ? true : false}" -->
+	<!--<s:Button id="unwantedOptionalButton" 
+	width="100" height ="100"
+	y="{unwantedCoreTile.unwantedSlidesVGroup.contentHeight + 70 + 45}"
+	x="10"
+	visible="{dbModel._optionalActive ? true : false}"
+	/>-->
+	
+	<!-- Scroller x: 315 VGroup x:315-->
+	<s:Scroller id="wantedScrollBar"
+				width="707" height="700"
+				x="315" 	y="60"
+				
+				>
+		<s:VGroup x= "315" y = "60" id="vg" 
+				  dragOver="dragOverHandler(event);"
+				  dragEnter="dragEnterHandler(event);" 
+				  dragDrop="dragDropHandler(event);"
+				  
+				  >
+			
+			
+			<s:Group id="wantedGroup"
+					 width = "600" 
+					 
+					 
+					 
+					 />
+			<s:Spacer height="10"/>
+			
+		</s:VGroup>
+		
+		
+		
+	</s:Scroller>
+	
+	
+	<!-- ========================================================================== -->
+	<!-- =====================  LABELS  ======================= -->
+	<!-- ========================================================================== -->
+	
+	<s:Label id="optionalLabel"
+			 text="Optional"
+			 fontSize="18"
+			 color="white"
+			 top = "15"
+			 width = "300"
+			 textAlign="center"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	<s:Label id="titleLablel"
+			 text="{_presentationTitle}"
+			 fontSize="18"
+			 color="white"
+			 y = "{optionalLabel.y}"
+			 x = "300"
+			 width = "625"
+			 textAlign="center"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	<!-- =====================  BUTTONS  ======================= -->
+	
+	<s:Button id="backButton"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.BackButtonSkin"
+			  top="10"
+			  left = "15"
+			  click="backButton_clickHandler(event)"
+			  />
+	
+	<!--
+	<s:Button id="helpButton"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.HelpButtonSkin"
+			  top="10"
+			  x="225"
+			  click="helpButton_clickHandler(event)"
+			  />
+	-->
+	<s:Button id="saveBtn"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.CleanSaveButtonSkin"				  
+			  click="saveBtn_clickHandler(event)"
+			  y="7"
+			  x="790"
+			  
+			  />
+	
+	<s:Button id="printBtn"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.PrintButtonNoIconSkin"
+			  click="printBtn_clickHandler(event)"
+			  y="7"
+			  x="865"
+			  />
+	
+	<!-- =====================  ZOOM IN ON THE SLIDE  ======================= -->
+	
+	<!-- =====================  Zoom In Window  ======================= -->
+	
+	<mx:Canvas id="modalCanvas"
+			   x="0" y ="0"
+			   width="100%" height="100%"
+			   alpha="0.1"
+			   backgroundColor="white"
+			   visible="{zoomedInSlideWindowImage.visible}"
+			   />
+	<!-- Please place a 1px hex:#999999 border around the slide preview slide in the customize screen -->
+	
+	<s:Rect width="702"
+			height="502"
+			x="163"
+			y="126"
+			visible="{zoomedInSlideWindowImage.visible}"
+			>
+		<s:stroke>
+			<s:SolidColorStroke color="0x999999" weight="1" />
+		</s:stroke>
+		<s:filters>
+			<s:DropShadowFilter alpha="0.7" color="0x000000" />
+		</s:filters>
+	</s:Rect>
+	
+	<s:Image id="zoomedInSlideWindowImage"
+			 width = "700"
+			 height = "500"
+			 x = "164" y = "127"
+			 visible="false"
+			 fillMode="scale"
+			 scaleMode="stretch"
+			 smooth="true"
+			 smoothingQuality="high"
+			 doubleClickEnabled="true"
+			 doubleClick="hidePreviewZoomAndTitleStuff()"
+			 />
+	
+	<!--================================================================================
+	SLIDE PREVIEW TITLE BAR
+	================================================================================ -->
+	
+	<mx:Canvas id="modalCanvasForTitleSlide"
+			   x="0" y ="0"
+			   width="100%" height="100%"
+			   alpha="0.05"
+			   backgroundColor="white"
+			   visible="{titleSlideWidget.visible}"
+			   click = "titleSlideWidget.closeEditTools();"
+			   />
+	
+	<s:Group id="slidePreviewTitleBarGroup"
+			 visible="{previewingSlideHGroup.visible}"
+			 
+			 >
+		<s:Image id="previewingSlideTitleBarImage"
+				 source="@Embed('assets/images/previewingSlideTitleBar.jpg')"
+				 x="161" y="34"
+				 width="701"
+				 scaleMode="stretch"
+				 />
+		<s:Label id="slidePreviewLabel"
+				 horizontalCenter="0"
+				 y="48"
+				 text="Slide Preview"
+				 color="0xffffff"
+				 fontSize="18"
+				 />
+		<s:Button id="printPreviewingSlide"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.PrintButtonNoIconSkin"
+				  
+				  x="740" y="41"
+				  click="printPreviewingSlide_clickHandler(event)"
+				  />
+		
+		<s:Button id="closeSlidePreviewButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.CloseButtonSkin"
+				  x="830" y="43"
+				  click="previewingSlideHGroup.visible=false;titleSlideWidget.visible = false;"
+				  />
+	</s:Group>
+	
+	<!--================================================================================
+	SLIDE PREVIEW 
+	================================================================================ -->
+	
+	<!-- Please place a 1px hex:#999999 border around the slide preview slide in the customize screen -->
+	<!-- pre V6 
+	<s:Rect width="901"
+			height="548"
+			x="63"
+			y="80"
+			visible="{previewingSlideHGroup.visible}"
+			>
+		<s:stroke>
+			<s:SolidColorStroke color="0x999999" weight="1" />
+		</s:stroke>
+		<s:filters>
+			<s:DropShadowFilter alpha="0.7" color="0x000000" />
+		</s:filters>
+	</s:Rect>  -->
+	
+	<s:Rect width="701"
+			height="698"
+			x="161"
+			y="33"
+			visible="{previewingSlideHGroup.visible}"
+			>
+		<s:stroke>
+			<s:SolidColorStroke color="0x999999" weight="1" />
+		</s:stroke>
+		<s:filters>
+			<s:DropShadowFilter alpha="0.7" color="0x000000" />
+		</s:filters>
+	</s:Rect>
+	
+	<!-- the old way ( pre V6 ) 
+	<s:HGroup id="previewingSlideHGroup"
+			  x = "64" y = "127"
+			  visible="false"
+			  gap="0"
+			  doubleClickEnabled="true"
+			  doubleClick="hidePreviewZoomAndTitleStuff()"
+			  
+			  >
+		
+		<s:Image id="previewingSlideWindowImage"
+				 width = "700"
+				 height = "500"
+				 fillMode="scale"
+				 scaleMode="stretch"
+				 doubleClickEnabled="true"
+				 doubleClick="hidePreviewZoomAndTitleStuff()"
+				 smooth="true"
+				 smoothingQuality="high"
+				 />
+		
+		<mx:HTML id="previewingSlideNotesTextArea"
+				 width = "200"
+				 height="500"
+				 doubleClickEnabled="true"
+				 doubleClick="hidePreviewZoomAndTitleStuff()"
+				 />
+		
+		
+	</s:HGroup>
+	-->
+	<!-- THE NEW WAY ( V6 ) -->
+	<mx:Canvas id="backgroundCanvasToGiveHTMLRightMargin"
+			   width="700"
+			   height="150"
+			   x="162" y = "580"
+			   doubleClickEnabled="true"
+			   doubleClick="hidePreviewZoomAndTitleStuff()"
+			   backgroundAlpha="1"
+			   backgroundColor="#ffffff"
+			   visible="{previewingSlideHGroup.visible}" includeInLayout="{backgroundCanvasToGiveHTMLRightMargin.visible}"
+			   />
+	
+	<s:VGroup id="previewingSlideHGroup"
+			  x = "162" y = "80"
+			  visible="false"
+			  gap="0"
+			  doubleClickEnabled="true"
+			  doubleClick="hidePreviewZoomAndTitleStuff()"
+			  
+			  >
+		
+		<s:Image id="previewingSlideWindowImage"
+				 width = "700"
+				 height = "500"
+				 fillMode="scale"
+				 scaleMode="stretch"
+				 doubleClickEnabled="true"
+				 doubleClick="hidePreviewZoomAndTitleStuff()"
+				 smooth="true"
+				 smoothingQuality="high"
+				 />
+		
+		<s:Rect width="700"
+				height="2"
+				>
+			<s:stroke>
+				<s:SolidColorStroke color="0x000000" weight="1" />
+			</s:stroke>
+		</s:Rect>
+				   
+		<mx:HTML id="previewingSlideNotesTextArea"
+				 width = "700"
+				 height="150"
+				 doubleClickEnabled="true"
+				 doubleClick="hidePreviewZoomAndTitleStuff()"
+				 paddingRight="10"
+				 />
+		
+		
+	</s:VGroup>
+	
+	<!-- TITLE SLIDE -->
+	
+	
+	
+	<view:TitleSlideWidget id="titleSlideWidget" 
+						   visible="false"/>
+	
+	<view:PrinterView id="printerView" width="100%" height="100%"
+					  visible="false"
+					  />
+	
+	<mx:Canvas id="printerCover" width="100%" height="100%"
+			   backgroundAlpha=".99"
+			   backgroundColor="0xffffff"
+			   visible="{printerView.visible}"
+			   >
+		<s:Label horizontalCenter="0" verticalCenter="0"
+				 text="Preparing Print Job..."
+				 color="0x000000"
+				 />
+	</mx:Canvas>
+	
+</s:Group>

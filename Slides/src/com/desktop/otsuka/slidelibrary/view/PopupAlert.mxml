@@ -1,0 +1,435 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 implements="mx.managers.IFocusManagerContainer"
+		 >
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	<fx:Metadata>
+		[Event(name="keyboardDispatch", type="flash.events.Event")]
+	</fx:Metadata>
+	
+	<fx:Style>
+		@namespace s "library://ns.adobe.com/flex/spark";
+		@namespace mx "library://ns.adobe.com/flex/mx";
+		
+		mx|ProgressBar {
+			barSkin: ClassReference("ProgressBarSkin");
+		}
+		
+	</fx:Style>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			import com.desktop.otsuka.slidelibrary.view.PreviewView;
+			import com.desktop.otsuka.slidelibrary.view.skins.ProgressBarTrackSkin;
+			
+			import mx.controls.Alert;
+			import mx.core.IFlexDisplayObject;
+			import mx.events.FlexEvent;
+			import mx.managers.PopUpManager;
+			
+			import spark.events.TextOperationEvent;
+			
+			public var inputTIEnterHandler:Function;
+			public var previewKeyboard:PreviewView;
+			
+			[Bindable]
+			public var progressBarMode:Boolean = false;
+			[Bindable]
+			public var showProgressInfo:Boolean = false;
+			
+			private var showMoreProgressInfo:Boolean = false;
+						
+			public function setWidthAndHeight($width:int, $height:int):void{
+				this.width = $width;
+				this.height = $height;
+			//	titleBarImage.scaleX = ( $width / 377 );
+				alertBackgroundImage.scaleX = ( $width / 379 );
+				//alertBackgroundImage.scaleX = titleBarImage.scaleX;
+				titleBarImage.scaleX = alertBackgroundImage.scaleX;
+				titleBarImage.x=1;
+				alertBackgroundImage.scaleY = ( $height / 66 );
+				titleLabel.width = $width;
+				titleLabelAlertImg.x = 15;
+				
+				trace("Title Bar "+titleBarImage.x);
+				
+				bodyTextArea.width = $width-20;
+								bodyTextArea.x = 5;	
+				forcedUpdatesTextArea.width = $width - 20;
+				bodyTextArea2.width = $width - 20;
+				
+				//inputTI.scaleX = ($width - 20) / 244;
+				inputTI.x = 15;
+				inputTI.width = $width - 28;
+				
+				//alertBackgroundImage.y = 0;
+				buttonsHGroup.width = $width;
+				buttonsHGroup.y = $height - 60;
+				
+				//skipUpdatesButtonsHGroup.width = $width; 
+				
+				
+				dontShowAgainCheckBox.y = $height - 50;
+				
+				trace("10 04 am");
+				//okButton.y = $height - 50;
+				//okButton is 85 wide and 41 high
+				okButton.x = ($width/2) - 42;
+				okButton.y = $height - 51;
+			}
+			
+			public function addYesButton(callback:Function):void{
+				
+			}
+			
+			public function close():void
+			{	
+				/* var se:Event = new Event("keyboardDispatch",true);
+				previewKeyboard = new PreviewView();
+				dispatchEvent(se); */
+				PopUpManager.removePopUp(this);
+				
+				
+				
+				//trace("CLOSING?????");
+				
+			}
+
+			
+			
+			// INTERFACE
+			public function get defaultButton():IFlexDisplayObject { return null; }
+			public function set defaultButton(value:IFlexDisplayObject):void { }
+			
+			protected function inputTI_changingHandler(event:TextOperationEvent):void
+			{
+				if ( inputTI.text.length > 55 ) //NOTE
+				{ 
+					Alert.show(DatabaseModel.MESSAGE_26,"Attention");	
+					inputTI.text = inputTI.text.slice(0,54);
+				}				
+			}
+			
+			protected function inputTI_changeHandler(event:TextOperationEvent):void
+			{
+				if ( inputTI.text.length > 55 ) //NOTE 
+				{ 
+					Alert.show(DatabaseModel.MESSAGE_26,"Attention");	
+					inputTI.text = inputTI.text.slice(0,54);
+				}				
+				
+			}
+			
+			protected function inputTI_enterHandler(event:FlexEvent):void
+			{
+				if ( inputTIEnterHandler != null )
+				{
+					inputTIEnterHandler();
+				}
+				
+			}
+			
+			protected function showProgressInfoButton_clickHandler(event:MouseEvent):void
+			{				
+				if ( ! showMoreProgressInfo )
+				{
+
+					bodyTextArea.visible = true;
+					//showProgressInfoButton.text = "less";
+					showProgressInfoButton.rotation = 180;
+					showProgressInfoButton.y += showProgressInfoButton.height;
+					showProgressInfoButton.x += showProgressInfoButton.width;
+					if (forcedUpdatesTextArea.visible)
+					{
+						setWidthAndHeight(this.width, 205);
+						bodyTextArea.y = 155;
+					}else{
+						setWidthAndHeight(this.width, 150);
+						bodyTextArea.y = 100;
+					}
+				}else{
+					bodyTextArea.visible = false;
+					//showProgressInfoButton.text = "more";
+					showProgressInfoButton.rotation = 0;
+					showProgressInfoButton.y -= showProgressInfoButton.height;
+					showProgressInfoButton.x -= showProgressInfoButton.width;
+					//setWidthAndHeight(this.width, 110);
+					if (forcedUpdatesTextArea.visible)
+					{
+						setWidthAndHeight(this.width, 165);
+					}else{
+						setWidthAndHeight(this.width, 110);
+					}
+				}
+				
+				showMoreProgressInfo = ! showMoreProgressInfo;
+			}
+			
+			public function showForceUpdateText():void{
+				forcedUpdatesTextArea.visible = true;
+				forcedUpdatesTextArea.includeInLayout = true;
+				var deltaY:int = 55;
+				progressBar.y += deltaY;
+				bodyTextArea.y += deltaY;
+				hRule.y += deltaY;				
+				
+			}
+			
+			protected function progressBar_creationCompleteHandler(event:FlexEvent):void
+			{
+				// TODO Auto-generated method stub
+				progressBar.setProgress(5,100);
+			}
+			
+		]]>
+	</fx:Script>
+	
+	
+	
+	<!-- ============================================================================================
+										BACKGROUND IMAGES
+		 ============================================================================================ -->
+	
+		<!-- 379 x 66 -->
+		<s:Image id="alertBackgroundImage"
+				 source = "@Embed('assets/images/alertBackground.png')"
+				 
+			 	/>
+		<!-- lets just draw this instead of using an image -->
+	
+		<!--s:Rect id="topBlueBarRec" -->
+		
+	
+		<!-- 377 x 45 -->
+		<s:Image id="titleBarImage"
+				 source="@Embed('assets/images/alertTitleBar2.png')" 
+			 	
+			 	/>
+
+	<!-- ============================================================================================
+								        	 TITLE BAR
+		 ============================================================================================ -->
+	<s:Label id="titleLabel"
+			 color="white"			 			 
+			 textAlign="left"
+			 y = "15"
+			 fontSize="18"
+			 includeInLayout="{titleLabel.visible}"
+			 visible="true"
+			 text="Attention"
+			 x="10"
+			 />	
+	
+	<s:Image id="titleLabelAlertImg"
+			 source="@Embed('assets/images/alertLabel.png')"
+			 y = "15"
+			 includeInLayout="{titleLabelAlertImg.visible}"
+			 visible="{!titleLabel.visible}"
+			 />
+	
+	<!-- ============================================================================================
+		FORCING UPDATES
+	============================================================================================ -->
+	
+	<s:TextArea id="forcedUpdatesTextArea"
+				visible="false"
+				includeInLayout="false"
+				x = "5"
+				contentBackgroundAlpha="0"
+				fontSize="14"
+				borderVisible="false"
+				
+				y = "50"
+				textAlign="center"
+				editable="false"
+				/>
+				
+				
+	
+	
+	
+	
+	<!-- ============================================================================================
+	PROGRESS BAR
+	============================================================================================ -->
+
+	<mx:ProgressBar id="progressBar"
+					visible="{progressBarMode}"
+					includeInLayout="{progressBarMode}"
+					width="95%"
+					horizontalCenter="0"
+					y="56"
+					label="" labelPlacement="right" labelWidth="0" horizontalGap="0"
+					mode="manual"
+					barSkin="{ProgressBarSkin}"
+					trackSkin="{ProgressBarTrackSkin}"
+					trackHeight="20"					
+					creationComplete="progressBar_creationCompleteHandler(event)"
+					/>
+	
+	<mx:HRule id="hRule" width="97%" horizontalCenter="0" visible="{progressBarMode}" includeInLayout="{progressBarMode}" y="90" />
+	
+	<s:Image id="showProgressInfoButton" click="showProgressInfoButton_clickHandler(event)"
+			 x="7" y="{hRule.y - 7}" visible="{progressBarMode}" includeInLayout="{progressBarMode}"
+			 source="@Embed('assets/images/updatesArrow.png')"
+			 />
+	<!-- ============================================================================================
+											TEXT AREA
+		 ============================================================================================ -->
+	
+	<s:TextArea id="bodyTextArea"
+				x = "5"
+				contentBackgroundAlpha="0"
+				fontSize="14"
+				borderVisible="false"
+
+				y = "50"
+				textAlign="center"
+				editable="false"
+				
+				
+				/>
+	
+	<s:TextArea id="bodyTextArea2"
+				x = "5"
+				contentBackgroundAlpha="0"
+				fontSize="12"
+				borderVisible="false"
+				visible="false"
+				text="You are permitted to skip this update once."
+				
+				y = "95"
+				textAlign="center"
+				editable="false"
+				
+				
+				/>
+	
+	<!-- visible="{bodyTextArea.text != ''}"  -->	
+	
+	<!-- ============================================================================================
+											TEXT INPUT
+		 ============================================================================================ -->
+			<!-- base width of skin = 244 -->
+	<s:TextInput id="inputTI"
+				 skinClass="com.desktop.otsuka.slidelibrary.view.skins.ShadowTextInputSkin"
+				 visible="false"
+				 y = "60" x= "10"
+				 focusAlpha="0"
+				 change="inputTI_changeHandler(event)"
+				 enter="inputTI_enterHandler(event)"
+				 fontSize="16"
+				 />
+	
+	<!-- ============================================================================================
+											BUTTONS
+			============================================================================================ -->
+	
+	
+	<s:HGroup id="buttonsHGroup"
+			  width="100%"
+			  includeInLayout="{buttonsHGroup.visible}"
+			  
+			  >
+		
+		<s:Spacer width="1%" />
+		
+		<s:Button id="cancelButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.RoundRedCancelButtonSkin" 
+				  click="close()"
+				  includeInLayout="{cancelButton.visible}"
+				  />		
+		
+		<s:Spacer width="100%" />
+		
+		<s:Button id = "noButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.PopupWhiteButtonSkin"
+				  visible="true"
+				  includeInLayout="{noButton.visible}"
+				  />
+		
+		
+		<s:Button id = "yesButton"
+				  
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.YesButtonSkin"
+				  includeInLayout="{yesButton.visible}"
+				  />
+		<!-- skinClass="com.desktop.otsuka.slidelibrary.view.skins.PopupBlueButtonSkin" -->
+		
+		
+		<s:Button id = "doneButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.DoneButtonSkin"
+				  visible="false"
+				  includeInLayout="{doneButton.visible}"
+				  />
+		
+		
+		<s:Spacer width="1%" />			
+		
+	</s:HGroup>
+	
+	<!--
+	<s:HGroup id="skipUpdatesButtonsHGroup"
+			  width="100%"
+			  includeInLayout="{skipUpdatesButtonsHGroup.visible}"
+			  visible="false"
+			  >  -->
+		
+		<!-- <s:Spacer width="1%" />  -->
+	
+	<mx:HRule id="skipHRule" width="100%" visible="false" includeInLayout="false" />
+	<mx:HRule id="skipHRule2" width="100%" visible="false" includeInLayout="false"  strokeColor="#a3a3a3"/>
+	
+		<s:Button id="skipUpdatesButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.SkipUpdatesButtonSkin" 
+				  label="SKIP UPDATES"
+				  includeInLayout="false"
+				  visible = "false"
+				  color="#333377"
+				  
+				  fontSize="14"
+				  />		
+				
+		
+		<s:Button id = "updateNowButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.UpdateNowButtonSkin"
+				  label="UPDATE NOW"
+				  includeInLayout="false"
+				  visible="false"
+				  color="#ffffff"
+				  fontSize="14"
+				  />
+		
+		
+				
+		
+	<!-- </s:HGroup> -->
+			 
+	<s:Button id="okButton"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.OkButtonSkin"
+			  visible="false"
+			  click="close()"
+			  includeInLayout="{okButton.visible}"
+			  bottom="5"
+			  />
+	
+	<s:CheckBox id="dontShowAgainCheckBox"
+				includeInLayout="{dontShowAgainCheckBox.visible}"
+				visible="false"
+				label="Don't show this message again"
+				color="0x000000"
+				skinClass="spark.skins.spark.CheckBoxSkin"
+				width="200"
+				height="20"
+				fontSize="12"
+				x="10"
+				/>
+	
+</s:Group>

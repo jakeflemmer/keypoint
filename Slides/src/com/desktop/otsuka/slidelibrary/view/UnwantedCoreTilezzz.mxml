@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 width="290"
+		 >
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import mx.collections.ArrayCollection;
+			
+			import spark.components.HGroup;
+			
+			private var _unwantedCoreSlidesAC:ArrayCollection;
+			private var _loadedSlidesMap:Object;
+			
+			//================================================================================================
+			// INITIALIZE
+			//================================================================================================
+			
+			public function init(unwantedCoreSlidesAC:ArrayCollection,loadedSlidesMap:Object):void{
+				_unwantedCoreSlidesAC = unwantedCoreSlidesAC;	
+				_loadedSlidesMap = loadedSlidesMap;
+			}
+			
+			//================================================================================================
+			// POPULATE
+			//================================================================================================
+			
+			public function populateUnwantedSlides():void{
+							
+				var rowsArray:Array = new Array();
+				var row:HGroup = makeUnwantedHGroupRow();
+				var rowCounter:uint = 0;				
+				var unfinishedRow:Boolean = true;
+				
+				rowsArray.push(row);
+				
+				for ( var i:uint = 0 ; i < _unwantedCoreSlidesAC.length; i++ )
+				{
+					unfinishedRow = true;
+					
+					//make the renderer
+					var bitmap:Bitmap = _loadedSlidesMap[_unwantedCoreSlidesAC[i].slide_id] as Bitmap;
+					var unwantedRenderer:UnwantedSlideRenderer = new UnwantedSlideRenderer();
+					unwantedRenderer.init( _unwantedCoreSlidesAC[i]);
+					unwantedRenderer.addEventListener("REMOVE_ME", onRemoveUnwantedSlide);
+					unwantedRenderer.addEventListener("PREVIEW_ME", onZoomInOnUnwantedSlide);
+					//unwantedRenderer.addEventListener(SlidesEvent.ZOOM_IN_ON_SLIDE, onZoomInOnWantedSlide);
+					unwantedRenderer.updateSource(bitmap);
+					
+					row = rowsArray[rowCounter] as HGroup;
+					
+					if ( row.numChildren < 1 )
+					{
+						row.addElement(unwantedRenderer);
+					}
+					else if ( row.numChildren == 1 )
+					{
+						unfinishedRow = false;
+						row.addElement(unwantedRenderer);
+						unwantedSlidesVGroup.addElement(row);	
+						rowsArray.push(makeUnwantedHGroupRow());
+						rowCounter++;
+					}
+				}
+				if ( unfinishedRow )
+				{
+					unwantedSlidesVGroup.addElement(row);	
+				}
+			}
+			public function repopulate(unwantedCoreSlidesAC:ArrayCollection):void{
+				unwantedSlidesVGroup.removeAllElements();
+				this._unwantedCoreSlidesAC = unwantedCoreSlidesAC;
+				populateUnwantedSlides();
+			}
+			
+			private function removeUnwantedSlideAndRepopulate(slide:Object):void{
+				for ( var i :uint = 0 ; i < _unwantedCoreSlidesAC.length; i++)
+				{
+					var coreSlide:Object = _unwantedCoreSlidesAC.getItemAt(i);
+					if ( coreSlide.slide_id == slide.slide_id)
+					{
+						_unwantedCoreSlidesAC.removeItemAt(i);
+						break;
+					}
+				}
+				unwantedSlidesVGroup.removeAllElements();
+				populateUnwantedSlides();
+			}
+			
+			//================================================================================================
+			// CLICK HANDLERS
+			//================================================================================================
+			
+			private function onRemoveUnwantedSlide(e:Event):void{
+				var unwantedSlideRenderer:UnwantedSlideRenderer = ( e.currentTarget as UnwantedSlideRenderer);
+				var slide:Object = unwantedSlideRenderer.slide;
+				if ( slide.bundle_id && slide.bundle_id as int > 0 )
+				{
+					removeAllBundledSlides(slide);
+					return;
+				}
+				removeUnwantedSlideAndRepopulate(slide);
+				var se:SlidesEvent = new SlidesEvent(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP);
+				se.slide = slide;
+				dispatchEvent(se);
+			}
+			private function removeAllBundledSlides(slide:Object):void{
+				var slidesToRemove:Array = new Array();
+				for ( var i:uint = 0 ; i < _unwantedCoreSlidesAC.length; i++)
+				{
+					var theSlide:Object = _unwantedCoreSlidesAC.getItemAt(i);
+					if ( theSlide.bundle_id as int == slide.bundle_id as int )
+					{
+						slidesToRemove.push(theSlide);	
+					}
+				}
+				for ( var j:uint = 0 ; j < slidesToRemove.length; j++)
+				{
+					var slideBeingRemoved:Object = slidesToRemove[j];
+					removeBundledSlideOneAtATime(slideBeingRemoved);
+				}
+			}
+			private function removeBundledSlideOneAtATime(slide:Object):void{
+				removeUnwantedSlideAndRepopulate(slide);
+				var se:SlidesEvent = new SlidesEvent(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP);
+				se.slide = slide;
+				dispatchEvent(se);
+			}
+
+			private function onZoomInOnUnwantedSlide(e:Event):void{
+				var unwantedSlideRenderer:UnwantedSlideRenderer = ( e.currentTarget as UnwantedSlideRenderer);
+				var slide:Object = unwantedSlideRenderer.slide;
+				var se:SlidesEvent = new SlidesEvent(SlidesEvent.ZOOM_IN_ON_SLIDE);
+				se.bitmap = unwantedSlideRenderer.thumbnailImage.source as Bitmap;
+				se.slide = slide;
+				dispatchEvent(se);
+			}				
+			
+			
+			//================================================================================================
+			// WORKER FUNCTIONS
+			//================================================================================================
+			
+			
+			private function makeUnwantedHGroupRow():HGroup{
+				var hgRow:HGroup= new HGroup();
+				hgRow.width = 290;
+				hgRow.gap = 7;
+				return hgRow;
+			}
+						
+			public function cleanSlate():void{
+				unwantedSlidesVGroup.removeAllElements();
+			}
+			
+			//================================================================================================
+			// GETTERS AND SETTERS
+			//================================================================================================
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+			
+		]]>
+	</fx:Script>
+	
+	<s:Image id="tileBackgroundImage"
+			 source="@Embed('assets/images/coreBackground.png')"
+			 width = "290"
+			 height="50"
+			 />
+	
+	<s:Label id="coreDeckTitleLabel"
+			 text="Core"
+			 width="290"
+			 color="0xffffff"
+			 textAlign="center"
+			 fontSize="16"
+			 y= "20"
+			 />
+	
+	
+	
+	<s:VGroup id="unwantedSlidesVGroup"
+			  width="290"
+			  y = "55"
+			  />
+</s:Group>

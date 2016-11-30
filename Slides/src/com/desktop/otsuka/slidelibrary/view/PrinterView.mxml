@@ -1,0 +1,599 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 >
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.view.PopupAlert;
+			
+			import flash.display.Bitmap;
+			import flash.display.DisplayObject;
+			import flash.display.Sprite;
+			import flash.events.Event;
+			import flash.events.EventDispatcher;
+			import flash.events.IEventDispatcher;
+			import flash.events.MouseEvent;
+			import flash.geom.Matrix;
+			import flash.geom.Rectangle;
+			import flash.printing.PrintJob;
+			import flash.printing.PrintJobOptions;
+			import flash.printing.PrintJobOrientation;
+			import flash.text.TextField;
+			import flash.text.TextFieldAutoSize;
+			import flash.text.TextFormat;
+			import flash.text.TextFormatAlign;
+			import flash.utils.setTimeout;
+			
+			import flashx.textLayout.formats.TLFTypographicCase;
+			
+			import mx.controls.HTML;
+			import mx.managers.PopUpManager;
+			import mx.printing.FlexPrintJob;
+			
+			import spark.components.Image;
+			import spark.components.TextArea;
+			import spark.utils.TextFlowUtil;
+			
+					
+					private const LARGE_MARGIN_BOTTOM:int = 24;
+					private const THUMBNAIL_WIDTH:int = 250;
+					private const THUMBNAIL_HEIGHT:int = 250;
+					private const THUMBNAIL_MARGIN_RIGHT:int = 20;
+					private const THUMBNAIL_MARGIN_BOTTOM:int = 18;
+					
+					
+					private var _presentationName:String;
+					private var _slidesToPrint:Array;
+					private var _slideNotes:Array;
+					private var _currentImage:Bitmap;
+					private var _parentDisplayObject:DisplayObject;
+					private var rangeZ:Array;
+				private var pagesPrinted:uint = 0;
+			
+			private var printJobZ:PrintJob;
+			
+			private var fontSize:uint = 12;
+					
+					//private var _notesTF:TextField;
+					//private var _notesFont:VerdanaRegular;
+					//private var _notesTextFormat:TextFormat;
+					
+					private var _printOptionsPopup:PopupAlert;
+					
+					
+					public function init(presentationName:String, slidesToPrint:Array, parentDisplayObject:DisplayObject, slideNotes:Array):void{
+						
+						_presentationName = presentationName;
+						_slidesToPrint = slidesToPrint;
+						_parentDisplayObject = parentDisplayObject;
+						_slideNotes = slideNotes;
+						
+					}
+					public function doThePrint():void{
+						
+						// make a popup 
+						// you can print big
+						// or you can print small
+						/*
+						==============================
+						NOT USED ANYMORE
+						===========================
+						_printOptionsPopup = PopUpManager.createPopUp(_parentDisplayObject ,PopupAlert,true) as PopupAlert;
+						_printOptionsPopup.setWidthAndHeight(480,300);				
+						_printOptionsPopup.titleLabel.text = "Print Options";
+						_printOptionsPopup.titleLabel.visible = true;
+						_printOptionsPopup.bodyTextArea.text = "Please indicate a range of slides to print. For example: '1-2, 5-7' will print slides 1, 2, 5, 6, 7."; 
+						_printOptionsPopup.inputTI.text = "1-" + _slidesToPrint.length.toString(); 
+						_printOptionsPopup.inputTI.visible = true;
+						_printOptionsPopup.inputTI.setFocus();
+						_printOptionsPopup.inputTI.y = 200;
+						_printOptionsPopup.yesButton.label = "Full Size";
+						_printOptionsPopup.noButton.visible = true;
+						_printOptionsPopup.noButton.label = "Thumbnails";
+						_printOptionsPopup.noButton.width = 115;
+						
+						_printOptionsPopup.yesButton.addEventListener(MouseEvent.CLICK, function(e:Event):void{					
+							//fullsize
+							var popupInputText:String = (e.target.parent.parent as PopupAlert).inputTI.text;
+							PopUpManager.removePopUp(_printOptionsPopup);
+							printFullSlidesOptionHandler(popupInputText);
+						});
+						_printOptionsPopup.noButton.addEventListener(MouseEvent.CLICK, function(e:Event):void{			
+							//thumbnails
+							var popupInputText:String = (e.target.parent.parent as PopupAlert).inputTI.text;
+							PopUpManager.removePopUp(_printOptionsPopup);
+							printThumbnailsOptionHandler(popupInputText);				
+						});
+						PopUpManager.centerPopUp(_printOptionsPopup);
+						*/
+					}
+					
+					
+					
+					private function printThumbnailsOptionHandler(popupInputText:String):void
+					{
+						
+						var rangeString:String = popupInputText;
+						trace( "Input: " + rangeString );
+						
+						var range:Array = parseRange(rangeString);
+						if( range.length == 1 && range[0] == 0 ) { 
+							trace("Invalid range.");			
+							return;
+						}
+						
+						trace("Parsed range: " + range);			
+						
+						var printJob:PrintJob = new PrintJob();
+						printJob.jobName = _presentationName;
+						
+						var printJobOptions:PrintJobOptions = new PrintJobOptions();
+						//printJobOptions.printAsBitmap = true; //really slow...
+						
+						if( printJob.start() ) { 
+							
+							if( _slidesToPrint.length && range.length ) { //if there are any images to show...
+								
+								var total:uint = 1;
+								var index:uint = 0;
+								var thumbsPerRow:int = 2; //Math.floor( printJob.pageWidth / (THUMBNAIL_WIDTH + THUMBNAIL_MARGIN_RIGHT));
+								var thumbsPerColumn:int = 3; 
+								var totalPerPage:int = thumbsPerRow * thumbsPerColumn;
+								var pageAdded:Boolean = false;
+								
+								var sprite:Sprite = new Sprite();
+								
+								for( var i:uint = 0; i < range.length; i++ ) { //only print the ones the user specified...
+									
+									var z:int = (range[i] as int) - 1 ;
+									var image:Bitmap = _slidesToPrint[z];
+									
+									_currentImage = image;
+									_currentImage.width = THUMBNAIL_WIDTH;
+									_currentImage.scaleY = _currentImage.scaleX;
+									_currentImage.smoothing = true;
+									
+									_currentImage.x = (index % thumbsPerRow) * (THUMBNAIL_WIDTH + THUMBNAIL_MARGIN_RIGHT);
+									_currentImage.y = Math.floor( index / thumbsPerRow ) * (THUMBNAIL_HEIGHT + THUMBNAIL_MARGIN_BOTTOM);
+									
+									sprite.addChild(_currentImage);
+									
+									pageAdded = false;
+									
+									if( index == (totalPerPage - 1) ) { 
+										try { 
+											
+											printJob.addPage( sprite, null, printJobOptions ); //printJob.printableArea
+										}
+										catch( err:Error ) { 
+											trace(err, err.message);
+										}
+										
+										trace("adding page of thumbnails");
+										
+										pageAdded = true;
+										sprite = new Sprite();
+										index = 0; //reset page
+									}
+									else { 
+										index++;
+									}
+									
+									trace(" added image " + index + " total = " + total);
+									
+									total++;
+								}
+								
+								if( ! pageAdded ) { //add the final page
+									try { 
+										printJob.addPage( sprite, null, printJobOptions ); //printJob.printableArea
+									}
+									catch( err:Error ) { 
+										trace(err, err.message);
+									}
+									
+									trace("adding page of thumbnails");
+								}
+							}
+							else { //nothing to print?
+								return; //?
+							}
+							
+							//printJob.addEventListener //functionality doesn't exist
+							
+							try { 
+								printJob.send();
+							}
+							catch( err:Error ) { 
+								trace(err, err.message);
+							}
+							
+							sprite = null;
+							printJob = null; 
+						}
+						else { 
+							//user cancelled print
+						}
+						
+					}
+					
+					private function printFullSlidesOptionHandler(popupInputText:String):void
+					{
+						var rangeString:String = popupInputText;
+						trace( "Input: " + rangeString );
+						
+						rangeZ = parseRange(rangeString);
+						if( rangeZ.length == 1 && rangeZ[0] == 0 ) { 
+							trace("Invalid range.");
+							return;
+						}
+						
+						trace("Parsed range: " + rangeZ);
+						
+						var printJob:PrintJob = new PrintJob();
+						printJob.jobName = _presentationName;
+						printJob.orientation = PrintJobOrientation.PORTRAIT;
+						
+						printJobZ = printJob;
+						
+						pagesPrinted = 0;
+						
+						if( printJobZ.start() ) { 
+							
+							if( _slidesToPrint.length > 0 && rangeZ.length ) { //if there are any images to show...
+								
+								pagesPrinted = 0;	
+								dispatchEvent(new SlidesEvent(SlidesEvent.HIDE_WHILE_PRINTING));
+								fullSizePrintManager();
+								
+
+								
+								
+							}
+							else { //nothing to print?
+								dispatchEvent(new SlidesEvent(SlidesEvent.PRINT_ALL_COMPLETE));
+								return; //?
+							}
+							
+							
+						}
+						else { 
+							//user cancelled print
+							dispatchEvent(new SlidesEvent(SlidesEvent.PRINT_ALL_COMPLETE));
+						}
+						
+					}
+			
+			
+					private function fullSizePrintManager():void{						
+							
+						
+//						for( var i:uint = 0; i < range.length; i++ ) { //only print the ones the user specified...
+						
+						if ( pagesPrinted < rangeZ.length )
+						{
+						
+							var z:int = (rangeZ[pagesPrinted] as int) - 1 ;
+							var image:Bitmap = _slidesToPrint[z];
+															
+							var notes:String = _slideNotes[z] as String;
+						
+							printSingleSlideOfBatch(image,notes);
+						}
+						else
+						{
+							try { 
+								printJobZ.send();
+								dispatchEvent(new SlidesEvent(SlidesEvent.PRINT_ALL_COMPLETE));
+								
+							}
+							catch( err:Error ) { 
+								trace(err, err.message);
+							}
+						}
+							
+															
+	//					}
+						
+						
+						
+					}
+					
+					
+					
+					
+					
+					
+			
+			public function printSingleSlideOfBatch(slideImageSource:Object, notesHTMLString:String):void{
+				
+				
+				fontSize = 12;
+				
+					
+					var imageRect:Rectangle = printJobZ.printableArea;
+					imageRect.width = Math.floor(imageRect.width * 0.5);
+					
+					
+					slideImage.source = slideImageSource;
+					
+					slideImage.width = imageRect.width;
+					slideImage.height = imageRect.width * .7;
+					slideImage.y = 5;
+					slideImage.x = (printJobZ.printableArea.width / 2) - (slideImage.width / 2);
+					
+					var notesRect:Rectangle = printJobZ.printableArea;
+					
+					notesHTML.htmlText = notesHTMLString;
+					
+					
+					notesHTML.y = printJobZ.printableArea.height * .37;
+					notesHTML.width = notesRect.width * .9;
+					notesHTML.x = notesRect.width * .05;
+					
+					var originalNotes:String = notesHTML.htmlText;
+					var newNotes:String;
+					
+					setTimeout(function(o:Object=null):void{
+						
+					if ( notesHTML.height > printJobZ.printableArea.height * .55 )
+					{
+						newNotes = reduceFontSize(originalNotes);
+					}
+					if ( newNotes ) notesHTML.htmlText = newNotes;
+					if ( notesHTML.height > printJobZ.printableArea.height * .55 )
+					{
+						newNotes = reduceFontSize(originalNotes);
+					}
+					if ( newNotes ) notesHTML.htmlText = newNotes;
+					if ( notesHTML.height > printJobZ.printableArea.height * .55 )
+					{
+						newNotes = reduceFontSize(originalNotes);
+					}
+					if ( newNotes ) notesHTML.htmlText = newNotes;
+					
+					
+					
+					setTimeout(function (o:Object=null):void{
+						try { 
+							printJobZ.addPage( catcherGroup); //printJob.printableArea
+							pagesPrinted++;
+							fullSizePrintManager();
+						}
+						catch( err:Error ) { 
+							trace(err, err.message);
+						}
+						
+					},100);
+					
+					},500);
+			}
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+					
+					public function printSingleSlide(slideImageSource:Object, notesHTMLString:String):void{
+						
+						var printJob:FlexPrintJob = new FlexPrintJob();
+						//printJob.jobName = _presentationName;
+						//printJob.orientation = PrintJobOrientation.PORTRAIT;
+						fontSize = 12;
+						
+						
+						
+						
+						
+						
+						
+						
+						if( printJob.start() ) { 
+							
+							
+												
+//							var imageRect:Rectangle = printJob.printableArea;
+//							imageRect.width = Math.floor(imageRect.width * 0.5);
+							
+							
+							slideImage.source = slideImageSource;
+							
+//							slideImage.width = imageRect.width;
+//							slideImage.height = imageRect.width * .7;
+//							slideImage.y = 5;
+//							slideImage.x = (printJob.printableArea.width / 2) - (slideImage.width / 2);
+							
+//							var notesRect:Rectangle = printJob.printableArea;
+							
+							notesHTML.htmlText = notesHTMLString;
+							
+			
+//							notesHTML.y = printJob.printableArea.height * .37;
+//							notesHTML.width = notesRect.width * .9;
+//							notesHTML.x = notesRect.width * .05;
+							
+													
+							var originalNotes:String = notesHTML.htmlText;
+							var newNotes:String;
+							
+//							setTimeout(function(o:Object=null):void{
+//								
+//							if ( notesHTML.height > printJob.printableArea.height * .55 )
+//							{
+//								newNotes = reduceFontSize(originalNotes);
+//							}
+//							if ( newNotes ) notesHTML.htmlText = newNotes;
+//							invalidateDisplayList();
+//							validateNow();
+//							if ( notesHTML.height > printJob.printableArea.height * .55 )
+//							{
+//								newNotes = reduceFontSize(originalNotes);
+//							}
+//							if ( newNotes ) notesHTML.htmlText = newNotes;
+//							invalidateDisplayList();
+//							validateNow();
+//							if ( notesHTML.height > printJob.printableArea.height * .55 )
+//							{
+//								newNotes = reduceFontSize(originalNotes);
+//							}
+//							if ( newNotes ) notesHTML.htmlText = newNotes;
+//							invalidateDisplayList();
+//							validateNow();
+							
+
+							
+								setTimeout(function (o:Object=null):void{
+								try { 
+									var po:PrintJobOptions = new PrintJobOptions();
+									po.printAsBitmap = false;
+									//printJob.addPage( catcherGroup ,null,po); //printJob.printableArea
+									printJob.addObject(notesHTML);
+									printJob.addObject(slideImage);
+									printJob.send();
+									dispatchEvent(new SlidesEvent(SlidesEvent.PRINT_SLIDE_COMPLETE));
+								}
+								catch( err:Error ) { 
+									trace(err, err.message);
+								}
+							
+								printJob = null; 
+								},100);
+							//},500);	
+							
+						}
+						else { 
+							trace("user cancelled print");
+							dispatchEvent(new SlidesEvent(SlidesEvent.PRINT_SLIDE_COMPLETE));
+						}
+					}
+					private function reduceFontSize(str:String):String{
+						var newNotes:String = "";
+						fontSize --;
+						newNotes = '<body style="font-size : ' + fontSize + ';">' + str + '</body>';
+						return newNotes;
+					}
+			
+			
+			private function parseRange(rangeString:String):Array
+			{
+				var range:Array = [];
+				
+				rangeString.replace(" ", "");
+				var ranges:Array = rangeString.split(",");
+				
+				for each( var test:String in ranges ) { 
+					if( (test.indexOf("-") > -1) ) { //grab the values inbetween
+						var splitTest:Array = test.split("-");
+						var first:int = int(splitTest[0]);
+						var last:int = int(splitTest[1]);
+						
+						//add the inbetweens
+						for( var i:int = first; i < last; i++ ) { 
+							range[range.length] = i;
+						}
+						
+						//add the last
+						range[range.length] = last;
+					}
+					else { //just add it.
+						range[range.length] = int(test);
+					}
+				}
+				
+				return range;
+			}
+					
+					private function fitIntoRect( displayObject:DisplayObject, rectangle:Rectangle, fillRect:Boolean = true, applyTransform:Boolean = true ):Matrix //align:String = "C", 
+					{
+						
+		
+						
+						var matrix : Matrix = new Matrix();
+						
+						var wD : Number = displayObject.width / displayObject.scaleX;
+						var hD : Number = displayObject.height / displayObject.scaleY;
+						
+						var wR : Number = rectangle.width;
+						var hR : Number = rectangle.height;
+						
+						var sX : Number = wR / wD;
+						var sY : Number = hR / hD;
+						
+						var rD : Number = wD / hD;
+						var rR : Number = wR / hR;
+						
+						var sH : Number = fillRect ? sY : sX;
+						var sV : Number = fillRect ? sX : sY;
+						
+						var s : Number = rD >= rR ? sH : sV;
+						//var w : Number = wD * s;
+						//var h : Number = hD * s;
+						
+						//var tX : Number = 0.0;
+						//var tY : Number = 0.0;
+						
+						//tX = 0.0; //LEFT, TOP_LEFT, BOTTOM_LEFT
+						//tY = 0.0; //TOP, TOP_LEFT, TOP_RIGHT
+						//tX = w - wR; //RIGHT, TOP_RIGHT, BOTTOM_RIGHT
+						//tY = h - hR; //BOTTOM, BOTTOM_LEFT, BOTTOM_RIGHT
+						//tX = 0.5 * (w - wR);
+						//tY = 0.5 * (h - hR);
+						
+						//trace("TRANSLATE: " + (rectangle.left - tX), (rectangle.top - tY));
+						
+						matrix.scale(s, s);
+						//matrix.translate(rectangle.left - tX, rectangle.top - tY);
+						
+						if(applyTransform) displayObject.transform.matrix = matrix;
+						
+						return matrix;
+					}
+					
+		]]>
+	</fx:Script>
+
+	
+	
+	<s:Group id="catcherGroup"
+			 >
+		<s:Image id="slideImage"				
+				 fillMode="scale"
+				 scaleMode="stretch"				 
+				 smooth="true"
+				 smoothingQuality="high"
+				 />
+		
+		<mx:HTML id="notesHTML"
+				 />
+					 
+	</s:Group>
+	
+	
+<!--
+	<mx:HTML id="notesTextArea"
+			 fontSize="10"
+			
+
+			 />
+	-->
+	<!--mx:Canvas id="notesCover"
+			   width="100%" height="100%"
+			   backgroundAlpha="0.99"
+			   backgroundColor="0xffffff"
+			  >
+		<s:Label verticalCenter="0" horizontalCenter="0" text="Preparing Print Job..." color="0x000000"/>
+	</mx:Canvas-->
+	
+</s:Group>

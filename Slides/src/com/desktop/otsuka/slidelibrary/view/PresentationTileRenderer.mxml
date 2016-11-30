@@ -1,0 +1,482 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx"
+		 click="onClick(event)"
+		 mouseOver="group1_mouseOverHandler(event)"
+		 mouseUp="group1_mouseUpHandler(event)"
+		 mouseOut="group1_mouseOutHandler(event)"
+		 height="50"
+		 >
+		<s:Rect id ="borderRect" width="650" height="50" radiusX="3" radiusY="3">
+			<s:fill>
+				<s:SolidColor id = "tileFillColor" color="0xffffff" />
+			</s:fill>
+		</s:Rect>
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.DownloadNecessaryDataCommand;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesUtilities;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import mx.collections.ArrayCollection;
+			import mx.controls.Alert;
+			import mx.controls.DateField;
+			import mx.formatters.DateFormatter;
+			import mx.rpc.events.FaultEvent;
+			import mx.rpc.events.ResultEvent;
+			import mx.rpc.http.HTTPService;
+			
+			import spark.events.TextOperationEvent;
+			
+			public var presentationObject:Object;
+			public var selected:Boolean = false;
+			public var title:String;
+			public var customTitle:String;
+			public var date:Date;
+			public var unixtime:Number;
+			private var isCustomPresentationTile:Boolean;
+			
+			var unixtimeDate:Date;
+						
+			
+			[Bindable]
+			private var inputTextColor:uint;
+						
+			public function init($presentationObject:Object):void{				
+				
+				inputTextColor = 0x000077;
+				presentationObject = $presentationObject;
+				title = $presentationObject["presentation_name"] as String;
+				customTitle = $presentationObject["custom_title"] as String; //NOTE
+				var dateString:String = $presentationObject["date_created"] as String;				
+			//	trace("dateString "+dateString);
+				
+				date = DateField.stringToDate(dateString,"YYYY-MM-DD");
+				if ( ! date )
+				{					
+					  
+					//throw new Error(" couldn't understand the date : " + $presentationObject["date_created"]);
+					// well it must be the timestamp now of V6
+					var tstamp:String = $presentationObject["date_created"];
+					date = new Date(Number(tstamp));
+					if( ! date )
+					{
+						Alert.show("Unable to format created date","Attention");
+					}
+				}
+				unixtime = date.time;	
+				
+				
+				
+				
+				xImage.visible =false;
+				
+				// set component values
+				dateLabel.text = DatabaseModel.getInstance().dateFormatter.format(date);
+				if (DatabaseModel.getInstance().presentationIsCustomPresentation(presentationObject) )
+				{
+					titleLabel.text = presentationObject["custom_title"] as String;
+					titleTextInput.text = presentationObject["custom_title"] as String;
+					isCustomPresentationTile = true;
+				}
+				else
+				{
+					titleLabel.text = presentationObject["presentation_name"] as String;
+					titleTextInput.text = presentationObject["presentation_name"] as String;
+					isCustomPresentationTile = false;
+				}				
+			}
+			
+			//==================================================================================			
+			// SWITCH MODES
+			//==================================================================================
+			
+			public function switchToEditMode():void{
+				titleTextInput.text = presentationObject["custom_title"] as String;
+				viewModeHGroup.visible = false;
+				editModeHGroup.visible = true;
+				borderRect.width = 600;
+				borderRect.x = 50;				
+			}
+			public function switchToViewMode():void{
+				viewModeHGroup.visible = true;
+				editModeHGroup.visible = false;
+				borderRect.width = 650;
+				borderRect.x = 0;	
+				xImage.visible=false; //NOTE 
+			}
+			
+			//==================================================================================			
+			// COPY / CLICK HANDLERS
+			//==================================================================================
+			
+			protected function copyButtonImage_clickHandler(event:MouseEvent):void
+			{
+				dispatchEvent(new SlidesEvent(SlidesEvent.COPY_CUSTOM_PRESENTATION));				
+			}
+			
+			protected function onClick(event:MouseEvent):void
+			{
+				if ( editModeHGroup.visible ) return;
+				dispatchEvent(new Event(Event.SELECT));				
+			}
+			protected function deletePresentationImage_clickHandler(event:MouseEvent):void
+			{
+				dispatchEvent(new SlidesEvent(SlidesEvent.DELETE_CUSTOM_PRESENTATION));
+				event.stopImmediatePropagation();
+			}
+			
+			//==================================================================================			
+			// MOUSE OVER
+			//==================================================================================
+			protected function group1_mouseOverHandler(event:MouseEvent):void
+			{
+				//tileFillColor.color = 0xddddff;
+				tileFillColor.color = 0x003366;
+				//titleTextInput.setStyle("color",0xffffff);
+				inputTextColor = 0xffffff;
+				
+			}			
+			protected function group1_mouseUpHandler(event:MouseEvent):void
+			{
+				tileFillColor.color = 0xffffff;	
+				inputTextColor =0x000077;
+			}
+			protected function group1_mouseOutHandler(event:MouseEvent):void
+			{
+				tileFillColor.color = 0xffffff;
+				inputTextColor =0x000077;
+			}
+			
+			//==================================================================================			
+			// EDIT CUSTOM TITLE HANDLER
+			//==================================================================================
+			
+			protected function titleTextInput_changeHandler(event:TextOperationEvent):void
+			{
+				presentationObject.custom_title = titleTextInput.text;
+				customTitle = presentationObject.custom_title;
+				
+				if ( presentationObject.custom_title.length > 55 )
+				{
+					Alert.show(DatabaseModel.MESSAGE_26,"Attention");
+					titleTextInput.text =  titleTextInput.text.slice(0,54);
+					presentationObject.custom_title = titleTextInput.text;
+					customTitle = presentationObject.custom_title;
+				}
+				titleLabel.text = titleTextInput.text;
+			}
+			
+			protected function titleTextInput_focusOutHandler(event:FocusEvent):void
+			{
+				//xImage.visible = false;
+				// we need to save the new title
+				if (newTitleIsValid())
+				{
+					dbModel.insertASinglePresentationObjectIntoPresentationsTable(presentationObject,dbModel.customSQLConnection);
+					
+					// and we need to push the changed name to the cloud
+					tellMalkaWeChangedADeck(presentationObject);
+				
+				}				
+			}
+			
+			private function newTitleIsValid():Boolean{
+				if ( presentationObject.custom_title.length < 1 )
+				{
+					Alert.show(DatabaseModel.MESSAGE_18,"Attention");
+					return false;
+				}				
+				return true;
+			}
+			
+			//==================================================================================			
+			// PUSH DECK TO MALKA
+			//==================================================================================
+			
+			private function tellMalkaWeChangedADeck(po:Object):void{
+				
+				// we set the is_pushed to false now and back to true on a successful response
+				dbModel.updateCustomPresentationIsPushed(po.guid , false);
+				
+				var data: Object = new Object();
+				data.m = LoginPanel.m;
+				data.format = "flash";
+				
+				/*curl 
+				http://slidesystem.malka.va-dev.net/library/api/6.0/user/e2510fc8343a4808a6cb6a3ea1c087a4/store_custom_decks/ 
+				
+				--data 'm=machineid&format=flash&
+				
+				&custom_decks_to_delete=[{"uuid":"randomxxuuid32432","user_last_saved":1394725000}]'
+				
+				*/
+				
+				var deck:Object = makeCustomDeckObject(po);
+				
+				
+				var decks:Array = new Array();
+				decks.push(deck);
+				
+				var jsonData:String = JSON.stringify(decks);				
+				data.custom_decks = jsonData;
+				
+				var user:Object = dbModel.getLastUserFromUsersTable()[0];
+				var userHash:String = user.user_hash;
+				
+				var service:HTTPService = new HTTPService();
+				service.url = DownloadNecessaryDataCommand.ALT_DATA_URL + userHash + "/store_custom_decks/";
+				service.method = "POST";
+				
+				trace("haha");
+				
+				service.addEventListener(FaultEvent.FAULT, changeServiceFaultHandler);
+				service.addEventListener(ResultEvent.RESULT, changeServiceResultHandler);
+				
+				dbModel.updateCustomPresentationIsPushed(po.guid, false);
+				
+				service.send(data);
+				
+			}
+			private function makeCustomDeckObject(po:Object):Object{
+				//var now:Number = (new Date().time) / 1000;
+				
+				var customDeck : Object = new Object();
+				customDeck.uuid = po.guid;
+				customDeck.deck_name = po.custom_title;
+				customDeck.deck_id = po.presentation_id;
+				
+				// for now we are taking the updates_last_applied from the users timestamp that they logged in with and applied all updates
+				var allUsers:Array = dbModel.getAll(dbModel.systemSQLConnection, "users" );
+				if ( ! allUsers || allUsers.length != 1 )
+				{
+					throw new Error("wring number of users in users table");
+				}
+				var ula:Number = allUsers[0].last_updated.toString();
+				if ( ! ula || ula == 0 ) throw new Error("wrong last_updated field stored in users table");
+				customDeck.updates_last_applied = ula;
+				
+ 				// we are only updating deck name so we want tite slide info preserved				
+				customDeck.presenters_name = null;	//"jboogie";
+				customDeck.presenters_date = null;
+				
+				var results:Array = DatabaseModel.getInstance().getWhere(DatabaseModel.getInstance().customSQLConnection,"title_slide","custom_presentation_id",po.custom_presentation_id);
+				if ( ! results || results.length < 1 )
+				{
+					trace("NO TITLE SLIDE FOUND IN DB for custom deck being renamed");					
+					
+					//customDeck.presenters_name = tsw.chosenName;
+					customDeck.presenters_name = null;
+					customDeck.presenters_date = null;
+				}else{
+					var loadedSlide:Object = results[0];
+					//customDeck.presenters_name = loadedSlide.title_string;
+					customDeck.presenters_name =( SlidesUtilities.titleSlideNameHasBeenChanged(loadedSlide.chosenName) ? loadedSlide.chosenName : null);
+					
+					var presentersTimestamp:Number ; 
+					
+					presentersTimestamp = loadedSlide.chosenTimestamp / 1000;
+					//}
+					
+					
+					customDeck.presenters_date = ( presentersTimestamp > 0 ? presentersTimestamp : null);
+					
+				}
+				
+				customDeck.user_last_saved = null; // we will store a real timestamp when the push succeeds / fails
+				
+				var slideSectionIds:ArrayCollection = makeArrayOfSlideSectionIds(po);
+				customDeck.slide_section_ids = slideSectionIds.source;
+				
+				customDeck.created_date = Number(po.date_created) / 1000;  //po.date_created;
+				
+				return customDeck;
+				
+			}
+			
+			private function makeArrayOfSlideSectionIds(po:Object) : ArrayCollection {
+				var ssids:ArrayCollection = new ArrayCollection();
+				var allSlides:Array = dbModel.getWhere(dbModel.customSQLConnection,"slides","presentation_id",po.custom_presentation_id );
+				if ( ! allSlides || allSlides.length < 1 ) throw new Error("there are no slides associated with this custom presentation");
+				for ( var i:uint = 0 ; i < allSlides.length; i++ ) {
+					var ss:Object = allSlides[i];
+					var ssid:int = ss.section_slide_id;
+					if ( ssid > 0 )
+					{
+						// we are good - continue
+					}else{
+						// this is a pre V6 saved customized deck
+						// work backwards from sec_slide_id_plus_cust_pres_id to get section_slide_id
+						ssid = ss.sec_slide_id_plus_cust_pres_id - ( po.custom_presentation_id * 10000);
+					}
+					if ( ss.unwanted == false )
+					{
+						ssids.addItem(ssid);	
+					}
+					
+				}
+				return ssids;
+			}
+			private function  changeServiceResultHandler(re:ResultEvent):void{
+				trace("yay   " + re.message);
+				var resultJSON:Object= JSON.parse(re.result as String);
+				
+				if ( resultJSON.creation_success && resultJSON.creation_success == true )
+				{						
+					dbModel.updateCustomPresentationIsPushed(presentationObject.guid, true);
+					dbModel.updateCustomPresentationUserLastSaved(presentationObject.guid, resultJSON.timestamp.toString());
+				}
+				// V6 TODO  -- look for success instead of delete
+				
+			}
+			private function  changeServiceFaultHandler(fe:FaultEvent):void{
+				trace("boo   "+ fe.message);
+				// V6 TODO
+				// special funky message about push or logout
+				
+			}
+			
+			//==================================================================================			
+			// GETTERS AND SETTERS
+			//==================================================================================
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+			private function clearFileName(event:MouseEvent):void
+			{
+				titleTextInput.text="";
+				xImage.visible = false;
+			}
+			
+		]]>
+	</fx:Script>
+	
+	<!--s:Image id="backgroundImg"
+			 source="@Embed('assets/images/list_item.png')" /-->
+	
+	
+	<!--==============================================
+							VIEW MODE
+			==================================================-->
+	
+	<s:Group 
+		id="viewModeHGroup"
+		y="20"
+		width = "650"
+		height="50"
+		horizontalCenter="0"
+		includeInLayout="{viewModeHGroup.visible}"
+		>	
+		
+		
+		<s:Label id="titleLabel"
+			 color="{inputTextColor}"
+			 fontSize="18"
+			 x="15"
+			 width="500"
+			
+				 />
+	
+		
+	
+		<s:Label id="dateLabel"
+				 color="{inputTextColor}"
+				 fontSize="18"
+				 x= "550"		
+			/>
+		
+		<s:Spacer width="5%" />
+		
+	</s:Group>
+	
+	<!--==============================================
+							EDIT MODE
+			==================================================-->
+	
+	<s:HGroup 
+		id="editModeHGroup"
+		y = "10"
+		width = "650"
+		height="50"
+		horizontalCenter="0"
+		includeInLayout="{editModeHGroup.visible}"
+		visible="false"
+		>
+		
+		<s:Image id="deletePresentationImage"
+				 source="@Embed('assets/images/delete.png')"
+				 horizontalCenter="0"				 
+				 click="deletePresentationImage_clickHandler(event)"
+				 toolTip="Delete Presentation"
+				 />
+		
+		<s:Spacer id="spacerForDeletePresentationImage" width="30" />
+		
+		<s:TextInput id="titleTextInput"
+					 borderVisible="true"
+					 width="500"
+					 height="30"
+					 verticalCenter="0"
+					 change="titleTextInput_changeHandler(event)"
+					 focusOut="titleTextInput_focusOutHandler(event)"	
+					 focusIn="xImage.visible = true;"
+					 />					 
+		
+		<s:Spacer width="20" />
+		
+		<s:Image id="copyButtonImage"
+				 source="@Embed('assets/images/copyBtn.png')"
+				 horizontalCenter="-5"
+				 click="copyButtonImage_clickHandler(event)"
+				 />
+		
+	</s:HGroup>
+	
+	<!--
+	<s:Group id="xImage" 
+		y="15" x="{titleTextInput.x + titleTextInput.width - 25}"
+		click="titleTextInput.text = ''"
+		visible="false"
+		toolTip="Clear name field"
+			>
+		<s:Ellipse 	width="20" height="20"
+			   		
+			   		>
+			<s:stroke>
+				<s:SolidColorStroke color="0x000000" weight="1"/>
+			</s:stroke>
+			<s:fill>
+				<s:SolidColor color="0x777777" />
+			</s:fill>
+		</s:Ellipse>
+		<s:Label text="x" color="0xffffff" x="7" y = "5" fontWeight="bold" fontSize="12"/>
+	</s:Group>
+	-->
+	<s:Button id="xImage"
+			 skinClass="com.desktop.otsuka.slidelibrary.view.skins.XImageButtonSkin"
+			 y="10" x="{titleTextInput.x + titleTextInput.width - 30}"
+			 click="clearFileName(event)"
+			 visible="{xImage.visible}"
+			 toolTip="Clear name field"
+			 /> 
+	
+	<!--
+	<s:Image id="xImage"
+			 source="@Embed('assets/images/x-button-dark.png')"
+			 y="15" x="{titleTextInput.x + titleTextInput.width - 25}"
+			 click="titleTextInput.text = ''"
+			 visible="false"
+			 toolTip="Clear name field"
+			 /> 
+	-->
+		
+			   
+			 
+</s:Group>

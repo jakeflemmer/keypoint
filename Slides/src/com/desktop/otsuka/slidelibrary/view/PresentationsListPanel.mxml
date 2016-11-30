@@ -1,0 +1,826 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 width="724" height="768"
+		 >
+	<s:Rect width="724" height="720" y = "45">
+		<s:fill>
+			<s:SolidColor color="0xdddddd" />
+		</s:fill>
+	</s:Rect>
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.DownloadNecessaryDataCommand;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesUtilities;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import flash.utils.setTimeout;
+			
+			import mx.collections.ArrayCollection;
+			import mx.controls.Alert;
+			import mx.managers.PopUpManager;
+			import mx.rpc.events.FaultEvent;
+			import mx.rpc.events.ResultEvent;
+			import mx.rpc.http.HTTPService;
+			
+			private var corePresentationsArray:Array;
+			private var customPresentationsArray:Array;
+			private var _presentationSelectedId:int = 0;
+			private var selectedPresentationObject:Object;
+			private var presentationTitlesSortedAscending:Boolean = false;
+			private var presentationDatesSortedAscending:Boolean = false;
+			private var copyingCustomPresentationPopup:PopupAlert;
+			
+			private var presentationTilesInEditMode:Boolean = false;
+			
+			private var selectedBrandObject:Object;
+			
+			[Embed(source="assets/images/whitearrow.png")]
+			public const WHITE_ARROW:Class;
+			
+			[Embed(source="assets/images/bluearrow.png")]
+			public const BLUE_ARROW:Class;
+			
+			
+			// while editing presentation titles selectionpanel buttons should be disabled
+			// pop up alert or spinner while loading
+			
+			
+			public function init(brandObject:Object):Boolean{	
+				this.selectedBrandObject = brandObject;
+				switchOutOfEditMode();
+				loadTheCorePresentations();
+				return loadTheCustomPresentation();
+			}
+			
+			// =====================================================================================
+			//  LOAD THE PRESENTATIONS
+			// =====================================================================================
+			
+			public function loadTheCorePresentations():void{
+				var results:Array = dbModel.getAllPresentationsByDate(dbModel.systemSQLConnection);
+				this.corePresentationsArray = filterByBrands(results);
+				populateTheCorePresentationsList();				
+			}
+			public function loadTheCustomPresentation():Boolean{
+				var results:Array = dbModel.getAllPresentationsByDate(dbModel.customSQLConnection);
+				this.customPresentationsArray = filterByBrands(results);
+				
+				//V6
+				this.customPresentationsArray = filterOutDeleted(this.customPresentationsArray);
+				
+				if ( customPresentationsArray && customPresentationsArray.length > 0 )
+				{
+					populateTheCustomPresentationsList();
+					return true;
+				}
+				else
+				{
+					return false;
+				}
+			}
+			private function filterByBrands(results:Array):Array{
+				var filteredArray:Array = new Array();
+				for ( var i : uint = 0 ; i < results.length; i++)
+				{
+					var presentation:Object = results[i];
+					//BRANDING
+					if ( presentation.brand_id == this.selectedBrandObject.id )
+					{
+						filteredArray.push(presentation);
+					}
+				}
+				return filteredArray;
+			}
+			
+			private function filterOutDeleted(results:Array):Array{
+				var filteredArray:Array = new Array();
+				for ( var i : uint = 0 ; i < results.length; i++)
+				{
+					var presentation:Object = results[i];
+					// IS_DELETED
+					if ( presentation.is_deleted == false )
+					{
+						filteredArray.push(presentation);
+					}
+				}
+				return filteredArray;
+			}
+			
+			// =====================================================================================
+			//  POPULATE THE LISTS
+			// =====================================================================================
+			
+			private function populateTheCorePresentationsList():void{
+				
+				corePresentationsVGroup.removeAllElements();
+
+				for ( var i :uint = 0 ; i < this.corePresentationsArray.length; i++)
+				{
+					var presentationObject:Object = corePresentationsArray[i];
+					var presentationTile:PresentationTileRenderer = createNewPresentationTile(presentationObject);										
+					corePresentationsVGroup.addElement(presentationTile);
+				}
+			}
+			
+			private function populateTheCustomPresentationsList():void{
+				
+				if ( presentationTilesInEditMode )
+				{
+					addANewCustomPresentationTile();
+					return;
+				}
+				customPresentationsVGroup.removeAllElements();
+
+				for ( var i :uint = 0 ; i < this.customPresentationsArray.length; i++)
+				{
+					var presentationObject:Object = customPresentationsArray[i];
+					var presentationTile:PresentationTileRenderer = createNewPresentationTile(presentationObject);					
+					customPresentationsVGroup.addElement(presentationTile);
+				}
+				defaultDateSort();
+				
+			}
+			
+			private function addANewCustomPresentationTile():void{
+				// we know that the new custom presentation must have the highest id ( because when its inserted it is given the highest id in the table )
+				if ( customPresentationsVGroup.numChildren >= customPresentationsArray.length )
+				{
+					throw new Error("We are trying to add a new presentation but already have em all");
+				}
+				// get the presentation with the highest id
+				var presentationWithHighestId:Object;
+				var highestId:uint = 0;
+				for ( var i : uint = 0 ;  i <  customPresentationsArray.length; i++)
+				{
+					if ( customPresentationsArray[i].custom_presentation_id >= highestId )
+					{
+						highestId = customPresentationsArray[i].custom_presentation_id;
+						presentationWithHighestId = customPresentationsArray[i];
+					}
+				}
+				var newPresentationTile:PresentationTileRenderer = createNewPresentationTile(presentationWithHighestId);
+				newPresentationTile.switchToEditMode();
+				customPresentationsVGroup.addElement(newPresentationTile);
+			}
+			
+			private function createNewPresentationTile(presentationObject:Object):PresentationTileRenderer{
+				var presentationTile:PresentationTileRenderer = new PresentationTileRenderer();
+				presentationTile.init(presentationObject);
+				presentationTile.addEventListener(Event.SELECT, onPresentationSelected);
+				presentationTile.addEventListener(SlidesEvent.COPY_CUSTOM_PRESENTATION, onCopyCustomPresentation);
+				presentationTile.addEventListener(SlidesEvent.DELETE_CUSTOM_PRESENTATION, onDeletePresentation);
+				return presentationTile;
+			}
+			
+			// =====================================================================================
+			//  VIEWING THE PRESENTATION
+			// =====================================================================================
+			private function onPresentationSelected(e:Event):void{
+				
+				selectedPresentationObject = (e.target as PresentationTileRenderer).presentationObject;				
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.NAVIGATE);
+				slidesEvent.navigateToPage = SlidesEvent.PREVIEW_PAGE;
+				slidesEvent.presentationObject = selectedPresentationObject;
+				dispatchEvent(slidesEvent);
+			}
+			
+			// =====================================================================================
+			//  COPYING CUSTOM PRESENTATION
+			// =====================================================================================
+			
+			private function onCopyCustomPresentation(se:SlidesEvent):void{
+				
+				var ptr:PresentationTileRenderer = ( se.target as PresentationTileRenderer);
+				if ( ptr.titleTextInput.text=="" || ptr.titleTextInput.text.length < 1 )
+				{
+					Alert.show(DatabaseModel.MESSAGE_18,"Attention");
+					return; 
+				}
+				
+				openCopyingPresentationPopup();
+				setTimeout(function(o:Object=null):void{	// so that popup opens
+					copyCustomPresentation(se);
+					loadTheCustomPresentation();
+					closeCopyCustomPresentationPopup();
+				},1000);				
+				// TODO but this time don't recreate the presentation tiles				
+			}
+			private function copyCustomPresentation(se:SlidesEvent):void{
+				var ptr:PresentationTileRenderer = ( se.target as PresentationTileRenderer);
+				var presentationObject:Object = SlidesUtilities.clonePresentationObject(ptr.presentationObject);
+				var slide:Object;
+				
+				var slides:Array = dbModel.getWhere(dbModel.customSQLConnection, "slides","presentation_id",presentationObject.custom_presentation_id );
+				if ( ! slides || slides.length < 1 )
+				{
+					Alert.show("No slides in the custom presentation", "ERROR");
+					return;
+				}
+				
+				for ( var i:uint = 0 ; i < slides.length; i++ )
+				{
+					slide = slides[i];							// (slide.section_slide_id + (custPresId*10000))
+					var originalSectionSlideId:uint = slide.sec_slide_id_plus_cust_pres_id - (presentationObject.custom_presentation_id*10000);
+					slide.originalSectionSlideId = originalSectionSlideId;
+				}
+				
+				dbModel.getNewCustomPresentationIdAndCreatedDate(presentationObject, true );
+				
+				for ( var j:uint = 0 ; j < slides.length; j++ )
+				{
+					slide = slides[j];
+					//var newSectionSlideId:uint = slide.originalSectionSlideId * presentationObject.custom_presentation_id;
+					var newSectionSlideId:uint = slide.originalSectionSlideId + (presentationObject.custom_presentation_id*10000);
+					slide.sec_slide_id_plus_cust_pres_id = newSectionSlideId;
+				}
+				
+				presentationObject.is_pushed = false;
+				dbModel.insertASinglePresentationObjectIntoPresentationsTable(presentationObject,dbModel.customSQLConnection);
+				
+				var sectionArray:Array = dbModel.getWhere(dbModel.systemSQLConnection,"sections","presentation_id",presentationObject.presentation_id);
+				if ( sectionArray != null && sectionArray.length > 0 )
+				{
+					var section:Object = sectionArray[0];	// TODO cause there is only one section
+					var sectionId:Object = section.section_id;
+				}
+						
+				dbModel.insertAnArrayOfSlidesIntoCustomSlidesTable(slides, sectionId, presentationObject.custom_presentation_id);
+				tellMalkaWeCopiedANewDeck(presentationObject);
+			}
+			private function openCopyingPresentationPopup():void{
+				copyingCustomPresentationPopup = PopupAlert(PopUpManager.createPopUp(this,PopupAlert,true));
+				copyingCustomPresentationPopup.setWidthAndHeight(300,120);
+				copyingCustomPresentationPopup.buttonsHGroup.visible = false;
+				//copyingCustomPresentationPopup.titleLabel.text = "Alert";
+				//copyingCustomPresentationPopup.titleLabel.visible = false;
+				copyingCustomPresentationPopup.bodyTextArea.text = DatabaseModel.MESSAGE_33; // "Copying custom presentation";		
+				PopUpManager.centerPopUp(copyingCustomPresentationPopup);
+				copyingCustomPresentationPopup.x -= 150;
+			}
+			private function closeCopyCustomPresentationPopup():void{
+				copyingCustomPresentationPopup.close();
+			}
+			
+			// =====================================================================================
+			//  DELETING CUSTOM PRESENTATION
+			// =====================================================================================
+			
+			private function onDeletePresentation(e:Event):void{
+				var ptr:PresentationTileRenderer = ( e.target as PresentationTileRenderer);
+				var presentationObject:Object = ptr.presentationObject;
+				dbModel.deleteCustomPresentation(presentationObject.guid, true);
+				dbModel.deleteCustomPresentationSlides(presentationObject.custom_presentation_id);
+				
+				dbModel.deleteCustomPresentationsTitleSlide(presentationObject.custom_presentation_id);
+				
+				dbModel.updateCustomPresentationIsPushed(presentationObject.guid, false);
+				
+				
+				// Now sync this with the 'cloud'
+				/*
+				
+				http://slidesystem.malka.va-dev.net/library/api/6.0/user/e2510fc8343a4808a6cb6a3ea1c087a4/store_custom_decks/ --data 'm=machineid&format=flash&custom_decks=[{"uuid":"randomxxuuid167","deck_name":"again  deck abc","updates_last_applied":1394565890,"deck_id":167,"slide_section_ids":[5,6,7,8],"user_last_saved":1394725430,"presenters_name":"Malka"}]&custom_decks_to_delete=[{"uuid":"randomxxuuid32432","user_last_saved":1394725000}]'
+				
+					in the result and fault handlers we will update the is_pushed column of this custom deck in the DB
+				*/
+				tellMalkaWeDeletedADeck(presentationObject);
+				
+				presentationTilesInEditMode = false;
+				if ( ! loadTheCustomPresentation())
+				{
+					var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.DELETED_LAST_CUSTOM_PRESENTATION);
+					dispatchEvent(slidesEvent);
+				}
+			}
+			
+			// =====================================================================================
+			// =====================================================================================
+			//  PUSH TO CLOUD SERVICES
+			// =====================================================================================
+			// =====================================================================================
+			
+			// =====================================================================================
+			// DELETE PUSH
+			// =====================================================================================
+			
+			private function tellMalkaWeDeletedADeck(po:Object):void{
+				var data: Object = new Object();
+				data.m = LoginPanel.m;
+				data.format = "flash";
+				
+				/*curl 
+				http://slidesystem.malka.va-dev.net/library/api/6.0/user/e2510fc8343a4808a6cb6a3ea1c087a4/store_custom_decks/ 
+				
+				--data 'm=machineid&format=flash&
+				
+				&custom_decks_to_delete=[{"uuid":"randomxxuuid32432","user_last_saved":1394725000}]'
+				
+				*/
+				
+				
+				var del:Object = new Object();
+				del.uuid = po.guid;
+				del.user_last_saved = (new Date().time) / 1000;  // Number(po.user_last_saved);	//
+				
+				var deletes:Array = new Array();
+				deletes.push(del);
+				
+				var jsonData:String = JSON.stringify(deletes);
+				data.custom_decks_to_delete = jsonData;
+				
+				var user:Object = dbModel.getLastUserFromUsersTable()[0];
+				var userHash:String = user.user_hash;
+				
+				var service:HTTPService = new HTTPService();
+				service.url = DownloadNecessaryDataCommand.ALT_DATA_URL + userHash + "/store_custom_decks/";
+				service.method = "POST";
+				
+				trace("haha");
+				
+				service.addEventListener(FaultEvent.FAULT, deleteServiceFaultHandler);
+				service.addEventListener(ResultEvent.RESULT, deleteServiceResultHandler);
+					
+				service.send(data);
+				
+			}
+			private function  deleteServiceResultHandler(re:ResultEvent):void{
+				trace("yay   " + re.message);
+				var resultJSON:Object= JSON.parse(re.result as String);
+				if ( resultJSON.deletions_response && resultJSON.deletions_response[0].success == true )
+				{
+					var guid:String = resultJSON.deletions_response[0].uuid;
+					dbModel.updateCustomPresentationIsPushed(guid, true);					
+					var now:Number = (new Date().time) / 1000;
+					dbModel.updateCustomPresentationUserLastSaved(guid, now.toString() );
+				}
+
+			}
+			private function  deleteServiceFaultHandler(fe:FaultEvent):void{
+				trace("boo   "+ fe.message);
+				
+			}
+			
+			// =====================================================================================
+			// COPY PUSH
+			// =====================================================================================
+			
+			private function tellMalkaWeCopiedANewDeck(po:Object):void{
+				
+				// we set the is_pushed to false now and back to true on a successful response
+				dbModel.updateCustomPresentationIsPushed(po.guid , false);
+				var data: Object = new Object();
+				data.m = LoginPanel.m;
+				data.format = "flash";
+				
+				/*curl 
+				http://slidesystem.malka.va-dev.net/library/api/6.0/user/e2510fc8343a4808a6cb6a3ea1c087a4/store_custom_decks/ 
+				
+				--data 'm=machineid&format=flash&
+				
+				&custom_decks_to_delete=[{"uuid":"randomxxuuid32432","user_last_saved":1394725000}]'
+				
+				*/
+				
+				var cop:Object = makeCustomDeckObject( po );
+				
+				
+				var copies:Array = new Array();
+				copies.push(cop);
+				
+				var jsonData:String = JSON.stringify(copies);
+				data.custom_decks = jsonData;
+				//data.custom_decks_to_delete = jsonData;
+				
+				var user:Object = dbModel.getLastUserFromUsersTable()[0];
+				var userHash:String = user.user_hash;
+				
+				var service:HTTPService = new HTTPService();
+				service.url = DownloadNecessaryDataCommand.ALT_DATA_URL + userHash + "/store_custom_decks/";
+				service.method = "POST";
+				
+				trace("haha");
+				
+				service.addEventListener(FaultEvent.FAULT, copyServiceFaultHandler);
+				//service.addEventListener(ResultEvent.RESULT, copyServiceResultHandler);
+				
+				service.addEventListener(ResultEvent.RESULT, function (re:ResultEvent):void{
+					trace("yay   " + re.message);
+					var resultJSON:Object= JSON.parse(re.result as String);
+					
+					if ( resultJSON.creation_success && resultJSON.creation_success == true )
+					{						
+						dbModel.updateCustomPresentationIsPushed(cop.uuid, true);
+						dbModel.updateCustomPresentationUserLastSaved(cop.uuid, resultJSON.timestamp.toString());
+					}
+					
+				});
+				
+				service.send(data);
+			}
+			
+			private function makeCustomDeckObject(po:Object):Object{
+				//var now:Number = (new Date().time) / 1000;
+				
+				var customDeck : Object = new Object();
+				customDeck.uuid = po.guid;
+				customDeck.deck_name = po.custom_title;
+				customDeck.deck_id = po.presentation_id;
+				
+				// for now we are taking the updates_last_applied from the users timestamp that they logged in with and applied all updates
+				var allUsers:Array = dbModel.getAll(dbModel.systemSQLConnection, "users" );
+				if ( ! allUsers || allUsers.length != 1 )
+				{
+					throw new Error("wring number of users in users table");
+				}
+				var ula:Number = allUsers[0].last_updated.toString();
+				if ( ! ula || ula == 0 ) throw new Error("wrong last_updated field stored in users table");
+				customDeck.updates_last_applied = ula;
+				
+				// BASED ON v5 - when copying a deck the title slide is NOT copied
+				customDeck.presenters_name = null;  //tsw.chosenName;	//"jboogie";
+				customDeck.presenters_date = null;
+				customDeck.user_last_saved = null; // we will store a real timestamp when the push succeeds / fails
+				
+				var slideSectionIds:ArrayCollection = makeArrayOfSlideSectionIds(po);
+				customDeck.slide_section_ids = slideSectionIds.source;
+				
+				customDeck.created_date = Number(po.date_created) / 1000;//po.date_created;
+				return customDeck;
+				
+			}
+			
+			private function makeArrayOfSlideSectionIds(po:Object) : ArrayCollection {
+				var ssids:ArrayCollection = new ArrayCollection();
+				var allSlides:Array = dbModel.getWhere(dbModel.customSQLConnection,"slides","presentation_id",po.custom_presentation_id );
+				if ( ! allSlides || allSlides.length < 1 ) throw new Error("there are no slides associated with this custom presentation");
+				for ( var i:uint = 0 ; i < allSlides.length; i++ ) {
+					var ss:Object = allSlides[i];
+					var ssid:int = ss.section_slide_id;
+					if ( ssid > 0 )
+					{
+						// we are good - continue
+					}else{
+						// this is a pre V6 saved customized deck
+						// work backwards from sec_slide_id_plus_cust_pres_id to get section_slide_id
+						ssid = ss.sec_slide_id_plus_cust_pres_id - ( po.custom_presentation_id * 10000);
+					}
+					if ( ss.unwanted == false )
+					{
+						ssids.addItem(ssid);	
+					}
+					
+				}
+				return ssids;
+			}
+			
+			private function  copyServiceResultHandler(re:ResultEvent):void{
+				trace("yay   " + re.message);
+				var resultJSON:Object= JSON.parse(re.result as String);
+				// V6 TODO not deletion - resposne success
+				if ( resultJSON.creation_success && resultJSON.creation_success == true )
+				{
+					var guid:String = resultJSON.deletions_response[0].uuid;
+					dbModel.updateCustomPresentationIsPushed(guid, true);					
+				}
+				
+			}
+			private function  copyServiceFaultHandler(fe:FaultEvent):void{
+				trace("boo   "+ fe.message);
+				
+			}
+			// =====================================================================================
+			//  TAB CLICK HANDLERS
+			// =====================================================================================
+			
+			public function showTheCorePresentations():void{
+				corePresentationsVGroup.visible = true;
+				customPresentationsVGroup.visible = false;
+			}
+			public function showTheCustomPresentations():void{
+				switchOutOfEditMode();
+				corePresentationsVGroup.visible = false;
+				customPresentationsVGroup.visible = true;
+			}		
+			
+			//================================================================================================
+			// EDITING CUSTOM PRESENTATION
+			//================================================================================================
+			
+			protected function editButton_clickHandler(event:MouseEvent=null):void
+			{
+				var numKids:int = customPresentationsVGroup.numChildren;
+				for ( var i:uint = 0 ; i < numKids; i++)
+				{
+					var presentationTileRenderer:PresentationTileRenderer = customPresentationsVGroup.getElementAt(i) as PresentationTileRenderer;
+					if ( presentationTilesInEditMode )
+					{
+						presentationTileRenderer.switchToViewMode();
+						
+					}
+					else
+					{
+						presentationTileRenderer.switchToEditMode();	
+					}					
+				}
+				presentationTilesInEditMode = ! presentationTilesInEditMode;
+			}
+			
+			private function switchOutOfEditMode():void{
+				presentationTilesInEditMode = true;
+				editButton_clickHandler();
+			}
+			
+			//================================================================================================
+			// SORT FUNCTIONS
+			//================================================================================================
+			
+			private function sortPresentationsByTitle():void{
+				// TODO - same functions for custom presentation vgroup - not just core presentations
+				var _selectPresentation:Object = new Object;
+				var _custom_core_title:String;
+				
+				if(corePresentationsVGroup.visible)
+				{
+					_selectPresentation = corePresentationsVGroup;
+					_custom_core_title = "title";
+				}
+				else if(customPresentationsVGroup.visible)
+				{
+					_selectPresentation = customPresentationsVGroup;
+					_custom_core_title = "customTitle";
+				}
+				
+				var num:int = _selectPresentation.numChildren;
+				var kidsArray:Array = new Array();
+				for ( var i:uint=0; i < num; i++)
+				{
+					var kid:PresentationTileRenderer = _selectPresentation.getChildAt(i) as PresentationTileRenderer;
+					kidsArray.push(kid);					
+				}
+				_selectPresentation.removeAllElements();
+				
+				presentationTitlesSortedAscending = ! presentationTitlesSortedAscending;
+				
+				if ( presentationTitlesSortedAscending)
+				{
+					//kidsArray.sortOn("title",Array.CASEINSENSITIVE);
+					kidsArray.sortOn(_custom_core_title,Array.CASEINSENSITIVE);
+				}
+				else
+				{
+					//kidsArray.sortOn("title",Array.DESCENDING |Array.CASEINSENSITIVE ); //Note
+					kidsArray.sortOn(_custom_core_title,Array.DESCENDING |Array.CASEINSENSITIVE ); //Note
+				}
+				
+				for ( var j:uint=0; j < num; j++)
+				{
+					_selectPresentation.addElement(kidsArray[j]);
+				}
+				if ( presentationTitlesSortedAscending )
+				{
+					titleSortingArrow.rotation = 90;
+					titleSortingArrow.x = titleLabel.x + titleLabel.width + 30;	
+					titleSortingArrow.y = titleLabel.y;
+					
+				}
+				else
+				{
+					titleSortingArrow.rotation = -90;
+					titleSortingArrow.x = titleLabel.x + titleLabel.width + 10;
+					titleSortingArrow.y = titleLabel.y + 5;
+				}				
+				dateSortingArrow.source = WHITE_ARROW;
+				titleSortingArrow.source = BLUE_ARROW;
+			}
+			
+			//Sort Date
+			private function sortPresentationsByDate():void{
+				
+				var _selectPresentation:Object = new Object;
+				
+				if(corePresentationsVGroup.visible)
+				{
+					_selectPresentation = corePresentationsVGroup;
+				}
+				else if(customPresentationsVGroup.visible)
+				{
+					_selectPresentation = customPresentationsVGroup;	
+				}
+			
+				
+				var num:int = _selectPresentation.numChildren;
+				var kidsArray:Array = new Array();
+				for ( var i:uint=0; i < num; i++)
+				{
+					var kid:PresentationTileRenderer = _selectPresentation.getChildAt(i) as PresentationTileRenderer;
+					kidsArray.push(kid);					
+				}
+				_selectPresentation.removeAllElements();
+				
+
+				
+					presentationDatesSortedAscending = ! presentationDatesSortedAscending;
+				
+					if ( presentationDatesSortedAscending)
+					{
+						kidsArray.sortOn("unixtime");
+					}
+					else
+					{
+						kidsArray.sortOn("unixtime",Array.DESCENDING | Array.NUMERIC);
+					}
+				
+				
+				for ( var j:uint=0; j < num; j++)
+				{
+					_selectPresentation.addElement(kidsArray[j]);
+				}
+				if ( presentationDatesSortedAscending )
+				{
+					dateSortingArrow.rotation = 90;
+					dateSortingArrow.x = dateLabel.x + dateLabel.width + 30;	
+					dateSortingArrow.y = dateLabel.y;
+					
+				}
+				else
+				{
+					dateSortingArrow.rotation = -90;
+					dateSortingArrow.x = dateLabel.x + dateLabel.width + 10;
+					dateSortingArrow.y = dateLabel.y + 5;
+				}				
+				titleSortingArrow.source = WHITE_ARROW;
+				dateSortingArrow.source = BLUE_ARROW;
+			}
+			
+			//Sort Date
+			private function defaultDateSort():void{
+				
+				var _selectPresentation:Object = new Object;
+				
+				//if(corePresentationsVGroup.visible)
+				//{
+					//_selectPresentation = corePresentationsVGroup;
+				//}
+				//else if(customPresentationsVGroup.visible)
+				//{
+					_selectPresentation = customPresentationsVGroup;	
+				//}
+				
+				
+				var num:int = _selectPresentation.numChildren;
+				var kidsArray:Array = new Array();
+				for ( var i:uint=0; i < num; i++)
+				{
+					var kid:PresentationTileRenderer = _selectPresentation.getChildAt(i) as PresentationTileRenderer;
+					kidsArray.push(kid);					
+				}
+				_selectPresentation.removeAllElements();
+				
+				
+					kidsArray.sortOn("unixtime");
+					
+					_selectPresentation = customPresentationsVGroup;
+					
+					for ( var j:uint=0; j < num; j++)
+					{
+						_selectPresentation.addElement(kidsArray[j]);
+					}
+				
+			}
+			
+			//================================================================================================
+			// GETTERS AND SETTERS
+			//================================================================================================
+			
+			public function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+		]]>
+	</fx:Script>
+	
+	
+	<!-- background -->
+	
+	<!-- optionalBackgroun.png = 302x46 needs to be 724x46-->
+	<s:Image id="greyTitleBar"
+			 source= "@Embed('assets/images/optionalBackground.png')"
+			 scaleX="2.3974"
+			 scaleY="1.02"
+			 y = "-1"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	<!-- =========================================================================================
+	Screen Title 
+	========================================================================================= -->
+	
+	<s:Label id="screenTitle"
+			 text="{(corePresentationsVGroup.visible ? 'Presentations Library' : 'My Presentations' )}"
+			 width="100%"
+			 height="45"
+			 y="20"
+			 horizontalCenter="0"
+			 fontSize="18"
+			 color = "0x777777"
+			 textAlign="center"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	<!-- i think the background is just plain grey - no image -->
+	
+	<!-- =========================================================================================
+	List Headings 
+	========================================================================================= -->
+	
+	<s:Label id="titleLabel" 
+			 text="Title"
+			 x = "75"
+			 y = "120"
+			 color="0x777777"
+			 fontSize="18"
+			 click="sortPresentationsByTitle();"
+			 />
+	
+	<s:Image id="titleSortingArrow"
+			 source="@Embed('assets/images/whitearrow.png')"
+			 x = "{titleLabel.x + titleLabel.width + 30}"
+			 y = "{titleLabel.y}"
+			 click="sortPresentationsByTitle();"
+			 rotation="90"
+			 />
+	
+	<s:Label id="dateLabel"
+			 text="Date"
+			 x="600"
+			 y="120"
+			 color="0x777777"
+			 fontSize="18"
+			 click="sortPresentationsByDate();"
+			 />
+	
+	<s:Image id="dateSortingArrow"
+			 source="@Embed('assets/images/bluearrow.png')"			
+			 x = "{dateLabel.x + dateLabel.width + 30}"
+			 y = "{dateLabel.y}"
+			 click="sortPresentationsByDate();"
+			 rotation="90"
+			 />
+	
+	<!-- edit button -->
+	
+	<s:Button id="editButton"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.EditButtonSkin"
+			  right="10"
+			  top = "60"
+			  click="editButton_clickHandler(event)"
+			  visible="{customPresentationsVGroup.visible}"
+			  />
+	
+	<!-- =========================================================================================
+	MAIN GROUP WINDOWS 
+	========================================================================================= -->
+	
+	
+	<s:Scroller 
+		height="510" 
+		x="37" y = "170"
+		visible="{corePresentationsVGroup.visible}"
+		>
+		
+		<s:VGroup id="corePresentationsVGroup"
+				  width="650"			 
+				  x = "37"
+				  y = "170"
+				  gap="1"	
+				  height="510"
+				  >
+			
+		</s:VGroup>	
+	</s:Scroller>
+	
+	<s:Scroller 
+		height="510" 
+		x="37" y = "170"
+		visible="{customPresentationsVGroup.visible}"
+		>
+		
+		<s:VGroup id="customPresentationsVGroup"
+				  width="650"			
+				  gap="1"
+				  height="510"
+				  >
+		</s:VGroup>
+	</s:Scroller>
+	
+	
+</s:Group>

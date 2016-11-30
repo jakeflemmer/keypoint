@@ -1,0 +1,815 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 creationComplete="group1_creationCompleteHandler(event)"
+		 width="265" height="320"
+		 >
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.DownloadNecessaryDataCommand;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			import com.desktop.otsuka.slidelibrary.view.skins.LogInButtonDownSkin;
+			import com.desktop.otsuka.slidelibrary.view.skins.LogInButtonSkin;
+			
+			import flash.net.navigateToURL;
+			import flash.utils.setTimeout;
+			
+			import mx.controls.Alert;
+			import mx.events.FlexEvent;
+			import mx.managers.CursorManager;
+			import mx.managers.PopUpManager;
+			import mx.rpc.http.HTTPService;
+			import mx.utils.UIDUtil;
+			
+			import spark.events.TextOperationEvent; //GUID
+			
+			//===================
+			// DANGER
+			//===================
+			public var HACK_LOGIN:Boolean = false;
+			public static const VICIOUS_HACK:Boolean = false;        
+			
+			public static const MAC_BUILD:Boolean = false;  
+			
+
+			
+			// ====  PROD =====
+			public static const MUST_USE_MALKAS_NEW_URLS:Boolean = true;
+			public static const BETA_OR_PROD_URL:String =  "http://keypoint.ctlsgroup.com/"; // PROD    
+			//=================
+			
+			// ====  BETA =====
+			//public static const MUST_USE_MALKAS_NEW_URLS:Boolean = true;
+			//public static const BETA_OR_PROD_URL:String =  "http://beta.otsukaweb.visual-a.com/"; // BETA 
+			//=================
+			
+			// ====  BETA 2 =====
+			//public static const MUST_USE_MALKAS_NEW_URLS:Boolean = true;
+			//public static const BETA_OR_PROD_URL:String =  "http://otsukaweb2.beta.va-dev.net/"; // BETA 2
+			//=================
+			
+			// ====  BETA 3 =====
+			// * NOTE: this URL requires special urls for updates json and new user json
+			//public static const MUST_USE_MALKAS_NEW_URLS:Boolean = true;  // TRUE !
+			//public static const BETA_OR_PROD_URL:String =  "http://otsukaweb2.awsbeta1.va-dev.net/"; // BETA 3
+			//=================
+			
+			// ====  BETA 4 =====
+			// * NOTE: this URL requires special urls for updates json and new user json
+			//public static const MUST_USE_MALKAS_NEW_URLS:Boolean = true;  // TRUE !
+			//public static const BETA_OR_PROD_URL:String =  "http://otsukaweb4.beta.va-dev.net/"; // BETA 4
+			//=================
+			
+			
+			// ====  STAGING ===== 
+			// public static const BETA_OR_PROD_URL:String =  "http://otsukaweb.staging.va-dev.net/"; // STAGING 
+			//=================
+			
+			
+			
+			// PROD user info :
+			//U: rrobinson@synapseny.com
+			//P: imagine1
+			
+			//=================== 
+			// DANGER
+			//===================
+		//	private var checkingCredentialsAlert:PopupAlert;         
+			public var userName:String = ""; 
+			public var user_hash:String = "";
+			private var loginConnectionTimer:Timer;
+			private var killLoginListenersAfterLoginTimerFired:Boolean = false;
+			
+			public var testTimer:Timer;
+			private var numberOfFailedAttemptsToCheckForSoftwareVersionUpgrade:uint = 0;			
+			public static const SECONDS_BEFORE_LOGIN_TIMEOUT:uint = 8; 
+			private var disableLogin:Boolean = false;
+			
+			//public var lastUpdated:String = "";
+			
+			// NOTE TO JAKE - TODO when a user goes to admin and insert a new slide at the very last position
+			// in a deck then customized decks based off that get wrong customSequence order - see emails sent Jira #299
+			
+			// NOTE TO JAKE - TODO there was a bug wherein if admin json says delete customized deck then add new
+			// deck, slides associated with old deck get added to new customized deck as well - i.e 'MEGA - DECK '			
+			
+			// NOTE TO JAKE - TODO user can double click log in button and cause problems
+			
+			//============================================================================================
+			//============================================================================================
+			// NEW V6 STUFF TODO
+			//============================================================================================
+			//============================================================================================
+			
+			// TODO
+			// an elegant database upgrade for multiple columns in multiple tables
+				//	custom slides table 
+					// - add section_slide_id field
+					// - add uuid field
+					// last_saved ?
+					// last updated ?
+			
+			
+			// add check box to login screen for working offline  -- done  -- descoped
+			// make service call to determine if bypassing updates is allowed  -- done
+			// POST to service if user chose to bypass updates or not  -- done
+			// insert customized decks into databases  -- done
+			// migrate the database at the start of updates data  -- done
+			// filter out deleted decks from showing in the custom presentations list  -- done
+			// insert custom decks for a new user  -- done
+			// remove work offline check box stuff  -- done 
+			// get real data from db queries when inserting custom decks from malka's json -- done			
+			// add GET_UPDATES_WANT_EM_OR_NOT message to pudates  -- done ( i think )
+			// slide notes on the bottom instead of on the right  -- done
+			// title slide !!  -- done
+			// alert changed to attention apparently system wide -- done
+			// new help menu screen  -- done - just need to put in the real FAQ when i get it
+			// updates applied message added back in  -- done
+			// store response timestamp after pushing custom decks -- done
+			// created date screwed up on cust decks  -- fixed = done		
+			// clock spinner instead of preloading message when previewing decks
+			// must push / pull / update / delete when :
+			//---------------------------------------------	
+			// new deck created  -- done
+			// deck resaved  -- done
+			// deck deleted  -- done --
+			// name changes  -- done
+			// deck copied  -- done
+			// push all changes to decks done through presentation list panel ( copying / name changing etc ) -- done
+			// TITLE SLIDE REPOPULATE WIDGET  -- done
+			// log in and decks have 'is_pushed' == false get pushed -- done			
+			// parse updates data response to see if it is empty or not		-- done				
+			// title slide date  -- done
+			// spinner  -- done
+			
+			// MODIFY ALL UPDATING OF CUSTOM DECKS FROM CORE UPDATES AND APPLY UPDATES ON A PER CUSTOM DECK BASIS FOR NEW USERS AND WHEN THEY ARE PRESENT
+			// ------------------------------
+				// add updates last applied to custom deck table  -- still dont think we need to do this
+				// do we get timestamp from malka in updates?  --- yes we do and we are inserting it correctly				
+				// paste custom deck updating into per custom deck updating
+				// populate - updates last applied correctly when pushing from push queue  --- don't need to do
+			
+			// FLOW
+			//-----------------
+				// parse custom decks from updates  -- done
+				// do we already have em? (guid)  -- done
+				// new - add em		-- done
+				// same - add em if timestamp is bigger - else skip  -- done
+				// do regular core deck updates  -- done
+				// do custom deck updates one by one  -- for new users only  -- done
+				// push the queue - displaying save custom decks service fail - error while saving data - yes to update no to log off.  -- done
+			
+
+			
+			// MIGRATION !  -- w cue push !
+
+
+			// additional popup entering custom deck name				
+			
+			
+			public var usersBrands:Array = new Array();
+			public var new_user_logged_in:Boolean; // false = old user logged back in
+			
+			private const LOGIN_REQUEST_URL:String =  BETA_OR_PROD_URL + "library/users/login/"; //?username=nico&password=password
+			
+			private var keyFile:File;
+			//public static var versionNumGlobal:String = "4.1";
+			public static var versionNumGlobal:String = "6.1"; 
+			public static var m:String; 
+			
+			
+			//	[Bindable]
+			//	public static var versionNum:String="4.0";
+			
+			[Bindable]
+			private var versionNum2:String = "V." + "6.1"; //versionNumGlobal;  
+			
+			//***********  Creating a Unique Key *******///
+			//*************Saves the key to a text file *************/
+			private function textFileKey ():void
+			{
+				var fileStream:FileStream = new FileStream();
+				//create a reference to the file in the applicationStorage Directory 
+				//(for more directories, look at http://help.adobe.com/en_US/FlashPlatform/reference/actionscript/3/flash/filesystem/File.html
+				
+				keyFile = File.applicationStorageDirectory;
+				keyFile = keyFile.resolvePath("MachineID.txt");
+				
+				if(!keyFile.exists)
+				{
+					fileStream.open(keyFile, FileMode.WRITE);
+					fileStream.writeUTFBytes(UIDUtil.createUID().toString());
+					fileStream.close();
+					
+					fileStream.open(keyFile,FileMode.READ);
+					m= fileStream.readUTFBytes(fileStream.bytesAvailable).toString();
+					fileStream.close();
+					trace("First Write and Read M  "+m);  
+				}
+					
+				else
+				{
+					fileStream.open(keyFile,FileMode.READ);
+					var readSt:String = fileStream.readUTFBytes(fileStream.bytesAvailable);
+					m= readSt;
+					trace("From File  "+m);
+					fileStream.close();
+				}	  
+			}//end of creating KEY FILE 
+			///////////////////////////////////////////////////////////////		
+			
+			/*================================================
+				DO LOGIN 
+			=========================================    */
+			
+			private function doLogin():void{
+				if ( disableLogin ) return;
+				
+				disableInputs();
+				
+				textFileKey (); 
+//				dbModel.resolveDatabasePaths();
+				setTimeout(continueDoLogin,3000);
+								
+				
+				//continueDoLogin();
+								
+			}
+			private function disableInputs(enabled:Boolean = false):void{
+				usernameTI.enabled = enabled;
+				passwordTI.enabled = enabled;
+				disableLogin = ! enabled;
+			}
+			private function continueDoLogin():void{  
+				trace("145");                                                                                                                                                
+				//DANGER
+				// DANGER
+				// DANGER  
+//				if ( VICIOUS_HACK )
+//				{
+//					new_user_logged_in = false;
+//					setTimeout(function():void{dispatchEvent(new SlidesEvent(SlidesEvent.LOGIN_COMPLETE));},250);
+//					return;
+//				}
+				
+//				if ( workOfflineCheckBox.selected )
+//				{
+//					tryOfflineLogin();
+//					return;
+//				}
+				var loader:URLLoader = new URLLoader();
+				loader.dataFormat = URLLoaderDataFormat.TEXT;				
+				loader.addEventListener(IOErrorEvent.IO_ERROR, loginResponseErrorHandler);
+				loader.addEventListener(Event.COMPLETE, loginResponseCompleteHandler);	
+				
+				// in addition to the response complete and response error handlers above we are making our own connection timer
+				// so that if neither succeed nor fail after a certain amount of time we assume we failed 
+				loginConnectionTimer = new Timer(SECONDS_BEFORE_LOGIN_TIMEOUT*1000,1);
+				loginConnectionTimer.addEventListener(TimerEvent.TIMER, onLoginConnectionTimeout);
+				
+				this.userName = usernameTI.text;   
+				
+				var url:String;
+				if ( userName.indexOf("@") > 0 && userName.indexOf(".") > 0 )  
+				{
+					//its an email
+					url = LOGIN_REQUEST_URL + "?email=" + encodeURI(userName) + "&password=" + encodeURI(passwordTI.text)+"&version="+versionNumGlobal+"&m="+m;
+				}else{
+					//its a username
+					url = LOGIN_REQUEST_URL + "?username=" + encodeURI(userName) + "&password=" + encodeURI(passwordTI.text)+"&version="+versionNumGlobal+"&m="+m;
+				}
+				
+				
+				// DANGER
+				// jake
+				if ( HACK_LOGIN ) {
+					if ( BETA_OR_PROD_URL ==  "http://beta.otsukaweb.visual-a.com/" )
+					{	// Beta
+						url = LOGIN_REQUEST_URL + "?username=" + encodeURIComponent("jflemmer") + "&password=" + encodeURIComponent("password")+"&version="+versionNumGlobal+"&m="+m;
+						
+						//============== TEST JSON PAGE=================================
+						//url = "http://mesdb.iguffy.va-dev.net/events/testing_keypoint/library/userdata/123/updates2/456/"+"?username=" + encodeURIComponent("jflemmer")+ "&password=" + encodeURIComponent("password")+"&version="+versionNumGlobal+"&m="+m;
+						//==============================================================
+						
+						this.userName = "jflemmer";
+					}else{
+						url = LOGIN_REQUEST_URL + "?email=" + encodeURIComponent("jflemmer@visual-a.com") + "&password=" + encodeURIComponent("password")+"&version="+versionNumGlobal+"&m="+m;
+						
+						//============== TEST JSON PAGE=================================
+						//url= "http://mesdb.iguffy.va-dev.net/events/testing_keypoint/library/userdata/123/updates2/456/"+"?email=" + encodeURIComponent("jflemmer@visual-a.com") + "&password=" + encodeURIComponent("password")+"&version="+versionNumGlobal+"&m="+m;
+						//===================================================
+						
+						this.userName = "jflemmer@visual-a.com";	
+					}
+				}
+				
+				// demo
+				//var url:String = LOGIN_REQUEST_URL + "?username=" + encodeURIComponent("demo") + "&password=" + encodeURIComponent("password");
+				
+				openModalAlertWindow();
+				loader.load( new URLRequest(url) );
+				loginConnectionTimer.start();
+				
+			}
+			protected function loginResponseCompleteHandler(event:Event):void
+			{
+				resetLogInButtonToNormalSkinState();
+				
+				if ( killLoginListenersAfterLoginTimerFired ) return; // if it takes longer than our connection timer to log in then
+				// there connection speed is too slow to go into online mode
+				loginConnectionTimer.stop();
+				loginConnectionTimer = null;
+				
+				var loader:URLLoader = event.currentTarget as URLLoader;				
+				loader.removeEventListener(Event.COMPLETE, loginResponseCompleteHandler);
+				loader.removeEventListener(IOErrorEvent.IO_ERROR, loginResponseErrorHandler);
+				
+				try {
+					var response:Object = JSON.parse( loader.data );
+				}
+				catch (e:Error){
+					killLoginListenersAfterLoginTimerFired = true;
+					
+					var ssv:SlideSystemView = ( this.parent as LoginView).parent as SlideSystemView;
+					ssv.customSpinner.closeSpinner();
+					// PopUpManager.removePopUp(checkingCredentialsAlert);
+					
+					loginConnectionTimer.stop();
+					loginConnectionTimer = null;
+					tryOfflineLogin();
+					disableInputs(true);
+					//disableLogin = false;
+					return;
+				}
+				
+				trace("RESPONSE: " +response.timestamp, response.userhash, response.errors, response.success);
+				
+				if( response.errors.length ) { 
+					trace(response.errors);		
+					var ssv:SlideSystemView = ( this.parent as LoginView).parent as SlideSystemView;
+					ssv.customSpinner.closeSpinner();
+					//checkingCredentialsAlert.close();
+					if ( response.errors[0] == "username invalid")
+					{
+						openWrongCredentialsPopup("username");
+					}else if ( response.errors[0] == "password invalid")
+					{
+						openWrongCredentialsPopup("password");
+					}
+					return;
+				}
+				
+				// BRANDING			
+				if ( response.hasOwnProperty("brands") ) 
+				{
+					var brandObject : Object;
+					var brandsArray:Array = response.brands as Array;
+					for ( var i :uint = 0; i < brandsArray.length; i++)
+					{
+						brandObject = brandsArray[i] as Object;
+						if ( brandObject.hasOwnProperty("id") && brandObject.hasOwnProperty("name")) 
+						{
+							//BRANDING
+							usersBrands.push(brandObject);
+						}else{
+							Alert.show("Branding information is not correct. Please contact admin for help.","Alert");
+							return;
+						}
+					}				
+				}else{
+					Alert.show("JSON user data doesn't have brands info");
+					throw new Error("");
+				}
+				
+				if( response.userhash ) { 
+					
+					//SUCCESS!
+					
+					user_hash = response.userhash;
+					
+					
+					var unixTime:Number = (new Date()).time / 1000;
+					dbModel.logIinTimeUnixTimeStamp = response.timestamp; // "V3=3439854954.44,V4=5450344.66"; //;
+					//lastUpdated = unixTime.toString();
+					trace("TRACE UNIX TIME   "+dbModel.logIinTimeUnixTimeStamp);
+					
+					passwordTI.text = "";
+					
+					//var lastUser:Object = DatabaseModel.getInstance().getLastUser(); //will return false if 'users' table doesn't exist
+					var lastUser:Object = dbModel.getUserWithUserHash(user_hash); //will return false if 'users' table doesn't exist
+					if( lastUser ) {					
+						
+						trace("lastUser exists...");
+						
+						if( lastUser.user_hash == response.userhash && lastUser.all_files_have_been_downloaded == true ) {							
+							trace("lastUser hash is the SAME!");													
+							new_user_logged_in = false;
+						}
+						else { 
+							trace("lastUser hash is NOT the same!");
+							new_user_logged_in = true;						
+						}
+					}
+					else { 
+						trace("lastUser does NOT exist");
+						new_user_logged_in = true;						
+					}
+					//PopUpManager.removePopUp(checkingCredentialsAlert);
+					var ssv:SlideSystemView = ( this.parent as LoginView).parent as SlideSystemView;
+					ssv.customSpinner.closeSpinner();
+					
+					disableInputs(true);
+					//disableLogin = false;
+					dispatchEvent(new SlidesEvent(SlidesEvent.LOGIN_COMPLETE));
+				}
+			}
+			
+			
+			protected function usernameTI_changeHandler(event:TextOperationEvent):void
+			{				
+				if ( disableLogin ) 
+				{
+					event.stopImmediatePropagation();//doesnt stop text changing
+					return;
+				}					
+				
+			}
+			
+			protected function usernameTI_enterHandler(event:FlexEvent):void
+			{
+				if ( disableLogin ) 
+				{
+					event.stopImmediatePropagation();
+					return;
+				}	
+				focusManager.setFocus(passwordTI);
+				
+			}
+			
+			protected function passwordTI_changeHandler(event:TextOperationEvent):void
+			{
+				if ( disableLogin ) 
+				{
+					event.stopImmediatePropagation();
+					trace("YOU CANT CHANGE THAT!!");
+					return;
+				}	
+				// TODO Auto-generated method stub
+				
+			}
+			protected function passwordTI_enterHandler(event:FlexEvent):void
+			{
+				if ( disableLogin ) 
+				{
+					event.stopImmediatePropagation();
+					return;
+				}	 
+				doLogin();
+				logInButton.setStyle("skinClass", Class(LogInButtonDownSkin));
+				
+			}
+			private function resetLogInButtonToNormalSkinState():void{
+				logInButton.setStyle("skinClass", Class(LogInButtonSkin));
+			}
+			
+			//=============================================================================================
+			// WORKER FUNCTIONS
+			//=============================================================================================
+			
+			private function openModalAlertWindow():void{
+				
+				var ssv:SlideSystemView = ( this.parent as LoginView).parent as SlideSystemView;
+				ssv.customSpinner.startSpinner();
+				/*
+				checkingCredentialsAlert = PopupAlert(PopUpManager.createPopUp(parent,PopupAlert,true));
+				checkingCredentialsAlert.setWidthAndHeight(300,120);
+				checkingCredentialsAlert.buttonsHGroup.visible = false;
+				//checkingCredentialsAlert.titleLabel.text = "Alert";				
+				checkingCredentialsAlert.bodyTextArea.text = DatabaseModel.MESSAGE_37;		
+				PopUpManager.centerPopUp(checkingCredentialsAlert);
+				*/
+			}
+			
+			private function onLoginConnectionTimeout(e:Event):void{
+				// ok so we have timed out and neither connected nor failed to connect to the login URL
+				// so we assume failure and run failed log in code	
+				killLoginListenersAfterLoginTimerFired = true;
+				var ssv:SlideSystemView = ( this.parent as LoginView).parent as SlideSystemView;
+				ssv.customSpinner.closeSpinner();
+				//PopUpManager.removePopUp(checkingCredentialsAlert);			
+				loginConnectionTimer.stop();
+				loginConnectionTimer = null;
+				
+				tryOfflineLogin();
+			}
+			private function tryOfflineLogin(o:Object=null):void{
+				// okay so currently it dies silently if there is no internet connection
+				// instead we want it to see if a last user exists
+				// and if they do then we want to see if their user hash matches
+				// and if it does then log them in 
+				// but skip all updates
+				var lastUser:Object = dbModel.getUserWithUserName(usernameTI.text); //will return false if 'users' table doesn't exist
+				if( lastUser && lastUser.all_files_have_been_downloaded == true ) {							
+					new_user_logged_in = false;
+					var se:SlidesEvent = new SlidesEvent(SlidesEvent.LOGIN_COMPLETE);
+					se.offlineLogIn = true;
+					
+					// V6 update user row in data table so that has_worked_offline = true
+					dbModel.updateUsersTableWithWorkedOfflineIsTrue(usernameTI.text);
+					
+					se.hasNnpe = lastUser.hasNnpe;
+					se.hasExcel = lastUser.hasExcel;
+					dispatchEvent(se);
+				}
+				disableInputs(true);
+				//disableLogin = false;
+			}
+			protected function loginResponseErrorHandler(event:IOErrorEvent):void
+			{
+				var loader:URLLoader = event.currentTarget as URLLoader;
+				
+				loader.removeEventListener(Event.COMPLETE, loginResponseCompleteHandler);
+				loader.removeEventListener(IOErrorEvent.IO_ERROR, loginResponseErrorHandler);
+				
+				if ( killLoginListenersAfterLoginTimerFired ) return;
+				
+				loginConnectionTimer.stop();
+				loginConnectionTimer = null;				
+				
+				trace("IO ERROR while attempting to validate user");
+				
+				//dispatchEvent(new Event(Event.CANCEL)); ? doesnt look like this event is listened for anywhere so commenting it out 
+				var ssv:SlideSystemView = ( this.parent as LoginView).parent as SlideSystemView;
+				ssv.customSpinner.closeSpinner();
+				//PopUpManager.removePopUp(checkingCredentialsAlert);				
+				
+				Alert.show("You are currently offline, and will only be able to access slides that are saved locally to your device. To retreive slide decks from the KEYPOINT CLOUD you must connect to the Internet.","Attention");
+				
+				tryOfflineLogin();				
+				
+			}
+			
+			private function openWrongCredentialsPopup(errorType:String):void{
+				var wrongCredentialsPopup:PopupAlert = PopupAlert(PopUpManager.createPopUp(parent,PopupAlert,true));
+				wrongCredentialsPopup.setWidthAndHeight(300,150);
+				wrongCredentialsPopup.buttonsHGroup.visible = false;
+				wrongCredentialsPopup.okButton.visible = true;
+				wrongCredentialsPopup.okButton.setFocus();				
+				focusManager.defaultButton = wrongCredentialsPopup.okButton;
+				//wrongCredentialsPopup.titleLabel.text = "Alert";
+				//wrongCredentialsPopup.titleLabel.visible = false;
+				wrongCredentialsPopup.bodyTextArea.text = (errorType == "username" ? "Username Invalid" : "Password Invalid");		
+				PopUpManager.centerPopUp(wrongCredentialsPopup);
+				
+				resetLogInButtonToNormalSkinState();
+				disableInputs(true);
+				//disableLogin = false;
+			}
+			
+			protected function group1_creationCompleteHandler(event:FlexEvent):void
+			{
+				// TODO Auto-generated method stub
+				// DANGER
+				if ( HACK_LOGIN )
+				{
+					doLogin();	
+				}	
+				
+				usernameTI.setFocus();
+				focusManager.defaultButton = logInButton;
+				
+				enableWorkOfflineCheckBox();
+			}
+			
+			//==========================================================================================			
+			// WORK OFFLINE CHECKBOX
+			//==========================================================================================
+			
+			private function enableWorkOfflineCheckBox():void{
+				//check if db exists - if not its enabled - return
+				// if db exists get the last user
+				//		if user has_worked_offline is true the enabled is false - return
+				//			else enabled it true return
+				dbModel.resolveDatabasePaths(); // this can take couple of seconds
+
+				setTimeout(function ():void{
+					
+				
+				var lastUser:Array = dbModel.getLastUserFromUsersTable(); //will return null if 'users' table doesn't exist
+				if ( lastUser == null || lastUser.length == 0 )
+				{
+					//workOfflineCheckBox.enabled = false;
+					checkForUpgadeVersionOfKeypoint(null);
+					return;
+				}
+				
+				checkForUpgadeVersionOfKeypoint(lastUser[0].user_hash);
+				
+				
+//				if ( lastUser[0].has_worked_offline )
+//				{
+//					workOfflineCheckBox.enabled = false;
+//					trace("last user has worked offline");
+//					cantWorkOfflineMessage.visible = true;
+//				}else{
+//					workOfflineCheckBox.enabled = true;
+//					cantWorkOfflineMessage.visible = false;
+//					trace("last user has not worked offline");
+//				}
+				
+				},2000);
+				
+			}
+			
+			//==========================================================================================			
+			// CHECK FOR UPGRADE VERSION OF KEYPOINT
+			//==========================================================================================
+			
+			/*If the user's information is in the database from their last login, use this URL:
+			curl http://slidesystem.malka.va-dev.net/library/api/6.0/user/d6e0c5fe33bd4a388f86a3c9fa64ecc7/check_software_version/?m=alsdfjasl
+			
+			If there is no user information yet, because it is a new keypoint install, then use this URL:
+			curl http://slidesystem.malka.va-dev.net/library/api/6.0/check_software_version/?m=machine_idabcd
+			
+			The response will be either: {"upgrade_suggested": true}
+			or: {"upgrade_suggested": false}
+			*/
+			
+			public function checkForUpgadeVersionOfKeypoint(userhash:String):void{
+				
+//				var ssv:SlideSystemView = ( this.parent as LoginView).parent as SlideSystemView;
+//
+//				ssv.customSpinner.startSpinner();
+//				
+//				setTimeout(function():void{
+//					ssv.customSpinner.closeSpinner();
+//				},3000);
+				
+				textFileKey();
+				var loader:URLLoader = new URLLoader();
+				loader.dataFormat = URLLoaderDataFormat.TEXT;				
+				loader.addEventListener(IOErrorEvent.IO_ERROR, upgradeResponseErrorHandler);
+				loader.addEventListener(Event.COMPLETE, upgradeResponseCompleteHandler);
+				
+				var url:String = "";
+				if ( userhash )
+				{
+					url = DownloadNecessaryDataCommand.ALT_DATA_URL + userhash + "/check_software_version/?m=" + m;
+				}
+				else{
+					url = BETA_OR_PROD_URL + "library/api/" + versionNumGlobal + "/check_software_version/?m=" + m;
+				}
+				
+				loader.load(new URLRequest(url));
+			}
+			
+			private function upgradeResponseErrorHandler(e:ErrorEvent):void{
+				trace("upgrade service call fail : ");
+				
+				if ( numberOfFailedAttemptsToCheckForSoftwareVersionUpgrade < 3 )
+				{
+					numberOfFailedAttemptsToCheckForSoftwareVersionUpgrade++;
+					
+				var lastUser:Array = dbModel.getLastUserFromUsersTable(); //will return null if 'users' table doesn't exist
+				if ( lastUser == null || lastUser.length == 0 )
+				{
+					//workOfflineCheckBox.enabled = false;
+					checkForUpgadeVersionOfKeypoint(null);
+					return;
+				}
+				
+				checkForUpgadeVersionOfKeypoint(lastUser[0].user_hash);
+				
+				}else{
+					// fail silently - as per Anthony Jones 6/2/14 Alert.show("We are unable to reach the server to determine if an upgraded version of KEYPOINT software is available","Attention");	
+				}
+				
+				
+			}
+			private function upgradeResponseCompleteHandler(e:Event):void{
+				trace("upgrade service success");
+				var result:String = e.currentTarget.data as String;
+				if ( result.indexOf("true") > 0 )
+				{
+					//Alert.show("An upgraded version of keypoint software is available. Download now ?","Alert");
+					var se:SlidesEvent = new SlidesEvent(SlidesEvent.UPGRADE_SOFTWARE_VERSION_AVAILABLE);
+					dispatchEvent(se);
+				}
+			}
+			
+			//==========================================================================================			
+			// GETTERS AND SETTERS
+			//==========================================================================================
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance(); 
+			}
+			
+		]]>
+	</fx:Script>
+	
+	
+	
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	
+	
+	<s:Image source="@Embed('assets/images/backDrop.png')"	
+			 
+			 />
+	
+	<s:Label text="USERNAME"
+			 color="white"
+			 fontSize="14"
+			 x="{usernameTI.x}"
+			 y="{usernameTI.y - 20}"
+			 />
+	
+	<s:TextInput id="usernameTI"
+				 skinClass="com.desktop.otsuka.slidelibrary.view.skins.LoginTextInputSkin"
+				 change="usernameTI_changeHandler(event)"
+				 enter="usernameTI_enterHandler(event)"				
+				 x="17"
+				 y="105"
+				 color="black"
+				 width = "230"
+				 height="24"
+				 
+				 />
+	
+	<s:Label text="PASSWORD"
+			 color="white"
+			 fontSize="14"
+			 x="{passwordTI.x}"
+			 y="{passwordTI.y - 20}"
+			 />
+	
+	<s:TextInput id="passwordTI"
+				 skinClass="com.desktop.otsuka.slidelibrary.view.skins.LoginTextInputSkin"
+				 change="passwordTI_changeHandler(event)"
+				 enter="passwordTI_enterHandler(event)"
+				 text=""
+				 displayAsPassword="true"
+				 x="17"
+				 y="173"
+				 color="black"
+				 width = "230"
+				 height="24"				
+				 />
+	
+	<s:Label text="Forgot/change password"
+			 color="white"
+			 fontSize="14"
+			 x="{usernameTI.x}"
+			 y="{passwordTI.y + 45}"
+			 textDecoration="underline"
+			 click="navigateToURL(new URLRequest(BETA_OR_PROD_URL + 'checkUsername/'))"
+			 useHandCursor="true"
+			 buttonMode="true"
+			 />
+	
+	<s:Button id="logInButton"
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.LogInButtonSkin"
+			  right="10"
+			  bottom="15"
+			  
+			  click="doLogin();"
+			  
+			  />
+	
+	<s:Label id="versionLabel"
+			 text="{versionNum2}"
+			 color="white"
+			 fontSize="11"
+			 x = "17"
+			 bottom = "1"
+			 />
+	<!--enabled="{usernameTI.text != '' &amp;&amp; passwordTI.text != ''}"-->
+	<!--
+	<s:CheckBox id="workOfflineCheckBox"
+				label="Work Offline"
+				creationComplete="enableWorkOfflineCheckBox()"
+				enabled="false"
+				tabEnabled="false"
+				/>
+	
+	<s:Label id="workOfflineMessage"
+			 visible="{workOfflineCheckBox.selected}"
+			 text="This feature allows you to work offline once.&#13;You will not be able to sync with online content while offline."
+			 left = "-400"
+			 top = "50"
+			 />
+	
+	<s:Label id="cantWorkOfflineMessage"
+			 visible="false"
+			 text="For compliance, you are unable to &#13; work offline during this session. "
+			 left = "-400"
+			 top = "50"
+			 />
+	-->
+	
+</s:Group>

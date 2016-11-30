@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx"
+		 
+		 >
+	
+		<fx:Script>
+			<![CDATA[
+				import com.desktop.otsuka.slidelibrary.controller.SlidesUtilities;
+				import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+				import com.desktop.otsuka.slidelibrary.view.CustomizeView;
+				
+				import mx.binding.utils.BindingUtils;
+				import mx.collections.ArrayCollection;
+				import mx.controls.Alert;
+
+				private var _presentationObject:Object;
+				private var _loadedSlidesMap:Object;
+				public var _unwantedOptionalTilesAC:ArrayCollection;	// TODO should get access to this through own getter function
+				
+				private var _unwantedOptionalSlides:Array;
+				private var optionalTilesMap:Object = new Object();
+				
+				
+				//NOTE:
+			//	public var OptionalActive:Boolean = false;
+				/*
+				
+				okay so each preenation has a list of optional decks associated to it
+				each optional decks has a property that references the core decks it can be associated with
+				*/
+				
+				//===================================================================================
+				// PUBLIC FUNCTIONS
+				//===================================================================================
+				public function init($unwantedOptionalSlides:Array,$loadedSlidesMap:Object,$presentationObject:Object):void{ 
+					
+					
+					_unwantedOptionalSlides = $unwantedOptionalSlides;
+					_loadedSlidesMap = $loadedSlidesMap;
+					_unwantedOptionalTilesAC = new ArrayCollection();
+					removeAllElements();
+					optionalTilesMap = new Object();
+					_presentationObject = $presentationObject;
+					
+				}
+				public function populateUnwantedOptionalGroups(_unsplitSlidesArray:Array):void{
+					
+				
+					
+					// okay so we have a list of slides that each have an optional_deck_id
+					// we need to split them into their groups of optional decks
+					// then create an optional tile for each group and pass each group its slides
+					// after looking into the database and getting the name of the deck
+				//	dbModel._optionalActive=true;
+					if ( _unwantedOptionalTilesAC.length > 0 )
+					{
+						throw new Error("should be repopulating not populating");
+					}
+					var i:uint;
+					var slide:Object;
+					// first clear all the slides of each tile
+					//if ( _unwantedOptionalSlides.length < 1 )
+					//{
+						// there are no slide but we want to clear everything - how to do it?
+						_unwantedOptionalTilesAC.removeAll(); 
+						optionalTilesMap = new Object();
+						removeAllElements();
+					//}
+//					for ( i=0 ; i < _unwantedOptionalSlides.length; i++)
+//					{
+//						slide = _unwantedOptionalSlides[i];
+//						if ( optionalTilesMap[slide.optional_deck_id] == null )
+//						{
+//							// this should not have any slides in it
+//						}
+//						else{
+//							
+//							(optionalTilesMap[slide.optional_deck_id] as UnwantedOptionalTile).worker._unwantedSlidesAC.removeAll();
+//						}
+//					}
+						var unwantedOptionalTile:UnwantedOptionalTile;
+					for ( i=0 ; i < _unwantedOptionalSlides.length; i++)
+					{
+						slide = _unwantedOptionalSlides[i];
+						if ( optionalTilesMap[slide.optional_deck_id] == null )
+						{
+							unwantedOptionalTile = createNewUnwantedOptionalTile(slide.optional_deck_id);
+							
+							//unwantedOptionalTile.addSlideAndRepopulate(slide);
+							optionalTilesMap[slide.optional_deck_id] = unwantedOptionalTile;
+							addElement(unwantedOptionalTile);
+							_unwantedOptionalTilesAC.addItem(unwantedOptionalTile);
+							//trace("COUNT first for loop with if conditional ### "+i);
+						}
+						else{
+							
+							//(optionalTilesMap[slide.optional_deck_id] as UnwantedOptionalTile).addSlideAndRepopulate(slide);
+						}
+					//	trace("44 Legnth of _unwantedOptionalTilesAC 44---->  "+_unwantedOptionalTilesAC.length);
+					}
+					// putOptionalTilesInPlaceEvenIfTheyHaveNoSlides
+					for ( i=0 ; i < _unsplitSlidesArray.length; i++)
+					{
+						slide = _unsplitSlidesArray[i];
+						if ( SlidesUtilities.slideIsOptionalSlide(slide))
+						{
+							if ( optionalTilesMap[slide.optional_deck_id] == null )
+							{
+								unwantedOptionalTile = createNewUnwantedOptionalTile(slide.optional_deck_id);
+								optionalTilesMap[slide.optional_deck_id] = unwantedOptionalTile;
+								addElement(unwantedOptionalTile);
+								_unwantedOptionalTilesAC.addItem(unwantedOptionalTile);
+								//trace("COUNT 2nd for loop with if conditional ### "+i);
+							}
+						}
+					}
+					//trace("44 Legnth of _unwantedOptionalTilesAC 44---->  "+_unwantedOptionalTilesAC.length);
+					
+					adjustOptionalTabs();
+				}
+				public function repopulateUnwantedOptionalGroups():void{
+					// take the _unwantedOptionalSlides array and go to each tile and  
+					
+				
+					
+					for ( var i:uint = 0 ; i < _unwantedOptionalTilesAC.length;i++)
+					{
+						var unwantedTile:UnwantedOptionalTile = _unwantedOptionalTilesAC.getItemAt(i) as UnwantedOptionalTile;
+						unwantedTile.populateUnwantedSlides();
+						
+					}
+				}
+
+				
+				//===================================================================================
+				// DRAG DROP REMOVE SLIDE
+				//===================================================================================
+				
+				public function onRemoveUnwantedSlideThroughDragDrop(slide:Object):void{
+					for ( var i:uint = 0 ; i < _unwantedOptionalTilesAC.length; i++)
+					{
+						var unwantedOptionalTile:UnwantedOptionalTile = _unwantedOptionalTilesAC.getItemAt(i) as UnwantedOptionalTile;
+						if ( unwantedOptionalTile.optionalDeck.optional_deck_id == slide.optional_deck_id )
+						{
+							unwantedOptionalTile.onRemoveUnwantedSlideThroughDragDrop(slide);
+							return;
+						}
+					}
+					Alert.show("couldn't find optional deck to put slide in", "ERROR");
+					throw new Error("couldnt find optional deck to put slide in");
+				}
+				
+				//===================================================================================
+				// PRIVATE FUNCTIONS
+				//===================================================================================
+				private function createNewUnwantedOptionalTile(optionalDeckId:uint):UnwantedOptionalTile{
+					//trace("66Legnth of _unwantedOptionalTilesAC 66---->  "+_unwantedOptionalTilesAC.length);
+					
+					var unwantedOptionalTile:UnwantedOptionalTile = new UnwantedOptionalTile();
+					var optionalDeck:Object;
+					var optionalDecks:Array = dbModel.getWhere(dbModel.systemSQLConnection,"optional_decks","optional_deck_id",optionalDeckId);
+					if ( optionalDecks && optionalDecks.length == 1 )
+					{
+						optionalDeck = optionalDecks[0];
+					}else{
+						Alert.show("Error finding optional deck","ERROR");
+						throw new Error("ERROR");
+						// V6 TODO
+						// NO NO NO they DONT want a virtual optional deck here !
+//						optionalDeck = new Object();
+//						optionalDeck.optional_deck_id = 999999;
+//						optionalDeck.deck_name = "Optional Replacement Slides";
+						
+						// in this case we have a virtual optional deck which we creat from either or swappable bundle slides 
+					}
+					unwantedOptionalTile.init(optionalDeck,_unwantedOptionalSlides,_loadedSlidesMap, _presentationObject);
+					addUnwantedTileListeners(unwantedOptionalTile); 
+					if ( _unwantedOptionalTilesAC.length > 0 )
+					{
+						
+						// we now this newly created guy is about to go into this AC
+						// and we know that his y must be bound to the last guys height
+					/* 	var previousOptTile:UnwantedOptionalTile = _unwantedOptionalTilesAC[_unwantedOptionalTilesAC.length-1];
+						   BindingUtils.bindSetter(function(o:Object):void{
+							
+							//unwantedOptionalTile.y = (o as UnwantedOptionalTile).unwantedSlidesVGroup
+							trace("o is : " +o );
+							unwantedOptionalTile.y = previousOptTile.y + o+ 70;
+							trace("the height of the optinal deck manager changed---->"+previousOptTile.y + o + 70);
+						},previousOptTile,["unwantedSlidesVGroup","contentHeight"]);   
+						 */
+						//NOTE
+						
+						
+						
+						
+						
+					}
+					else{
+						unwantedOptionalTile.y = 10;
+						trace("the height of the optinal deck manager changed ELSE statement---->"+unwantedOptionalTile.y);
+					}
+					trace("the height of the optinal deck manager changed VALUE Returned---->"+unwantedOptionalTile.y);
+					return unwantedOptionalTile;
+				}
+				
+				//Re-adjust the optional tabs  //NOTE
+				public function adjustOptionalTabs():void{
+					var unwantedOptArray:Array = new Array;
+					for (var j in _unwantedOptionalTilesAC){
+						trace("Function adjustOptionalTabs   "+"Count "+j+"\n"+_unwantedOptionalTilesAC[j]);
+						
+						if(j==0){
+							_unwantedOptionalTilesAC[j].y=10;
+						}
+						else if(j>0){
+							_unwantedOptionalTilesAC[j].y=_unwantedOptionalTilesAC[j-1].y+70;
+							
+							/* BindingUtils.bindSetter(function(o:Object):void{
+								
+								//unwantedOptionalTile.y = (o as UnwantedOptionalTile).unwantedSlidesVGroup
+								trace("o is : " +o );
+								_unwantedOptionalTilesAC[j].y = _unwantedOptionalTilesAC[j-1].y+ 70;
+								trace("the height of the optinal deck manager changed---->"+_unwantedOptionalTilesAC[j-1].y + 70);
+							},_unwantedOptionalTilesAC[j-1],["unwantedSlidesVGroup","contentHeight"]); */
+						}
+						
+					 
+						
+					}// end of for loop
+					
+				}
+				
+				private function addUnwantedTileListeners(unwantedOptionalTile:UnwantedOptionalTile):void{
+//					unwantedOptionalTile.addEventListener(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP, function (se:SlidesEvent):void{
+//						var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.ADD_SLIDE_TO_WANTED_GROUP);
+//						slidesEvent.slide = se.slide;
+//						dispatchEvent(slidesEvent);
+//					});
+//					unwantedOptionalTile.addEventListener(SlidesEvent.ZOOM_IN_ON_SLIDE, function (se:SlidesEvent):void{
+//						var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.ZOOM_IN_ON_SLIDE);
+//						slidesEvent.slide = se.slide;
+//						slidesEvent.bitmap = se.bitmap;
+//						dispatchEvent(slidesEvent);
+//					});
+//					unwantedOptionalTile.addEventListener("hidingSlides",
+//						function(e:Event):void{										
+//							//okay lets say the tile has a base height of 50 and each row of slides
+//							// has a row of 100 ( 83 for the thumbnail height plus 15 for the gap )										
+//							unwantedOptionalTile.height = 50;
+//							invalidateDisplayList();
+//							validateNow();
+//						});
+//					unwantedOptionalTile.addEventListener("showingSlides",
+//						function(e:Event):void{
+//							unwantedOptionalTile.height = 75 + unwantedOptionalTile.getVisibleHeight();
+//							invalidateDisplayList();
+//							validateNow();
+//						});
+				}
+				
+				public function cleanSlate():void{
+					if ( ! _unwantedOptionalTilesAC) return;
+					for ( var i:uint = 0 ; i < _unwantedOptionalTilesAC.length; i++)
+					{
+						var unwantedOptionalTile:UnwantedOptionalTile = _unwantedOptionalTilesAC.getItemAt(i) as UnwantedOptionalTile;
+						if ( unwantedOptionalTile.worker ) unwantedOptionalTile.worker.cleanSlate();
+					}					
+				}
+				public function closeAllTilesByDefault():void{
+					for ( var i:uint = 0 ; i < _unwantedOptionalTilesAC.length; i++)
+					{
+						var unwantedOptionalTile:UnwantedOptionalTile = _unwantedOptionalTilesAC.getItemAt(i) as UnwantedOptionalTile;
+						if ( unwantedOptionalTile.worker ) unwantedOptionalTile.worker.arrowImage_clickHandler(null);
+					}	
+				}
+				
+				//=========================================================================================
+				// GETTERS AND SETTERS
+				//=========================================================================================
+				
+			
+				private function get dbModel():DatabaseModel{
+					return DatabaseModel.getInstance();
+				}
+				
+				//=========================================================================================
+				// ON THE CHOPPING BLOCK
+				//=========================================================================================
+				
+				
+
+			]]>
+		</fx:Script>
+	
+</s:Group>

@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx"
+		 click="onClick(event)"
+		 mouseOver="group1_mouseOverHandler(event)"
+		 mouseUp="group1_mouseUpHandler(event)"
+		 mouseOut="group1_mouseOutHandler(event)"
+		 height="50"
+		 creationComplete="group1_creationCompleteHandler(event)"
+		 >
+	<s:Rect id ="borderRect" width="650" height="50" radiusX="3" radiusY="3">
+		<s:fill>
+			<s:SolidColor id = "tileFillColor" color="0xffffff" />
+		</s:fill>
+	</s:Rect>
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import mx.events.FlexEvent;
+			
+			public var presentationObject:Object;
+			public var selected:Boolean = false;
+			[Bindable]
+			public var title:String;
+			
+			public var resourceId:int = 0;
+			
+			
+			[Bindable]
+			private var inputTextColor:uint = 0x000077;
+			
+			protected function group1_creationCompleteHandler(event:FlexEvent):void
+			{
+				// TODO Auto-generated method stub
+				//trace("on cc resTileRend textHeight = " + titleLabel.textHeight);
+				if ( titleLabel.textHeight > 30 )
+				{
+					this.height = 72;
+					borderRect.height = 72;
+					viewModeHGroup.height = 72;
+				}
+				if ( titleLabel.textHeight > 50 )
+				{
+					this.height = 100;
+					borderRect.height = 100;
+					viewModeHGroup.height = 100;
+				}
+			}
+			
+			
+			//==================================================================================			
+			// MOUSE OVER
+			//==================================================================================
+			protected function group1_mouseOverHandler(event:MouseEvent):void
+			{
+				tileFillColor.color = 0x003366;
+				inputTextColor = 0xffffff;
+				
+			}			
+			protected function group1_mouseUpHandler(event:MouseEvent):void
+			{
+				tileFillColor.color = 0xffffff;	
+				inputTextColor =0x000077;
+			}
+			protected function group1_mouseOutHandler(event:MouseEvent):void
+			{
+				tileFillColor.color = 0xffffff;
+				inputTextColor =0x000077;
+			}
+			
+			
+			
+			
+			//==================================================================================			
+			// ON CLICK
+			//==================================================================================
+			
+			protected function onClick(event:MouseEvent):void
+			{
+				dispatchEvent(new Event(Event.SELECT));				
+			}
+			
+			
+			//==================================================================================			
+			// GETTERS AND SETTERS
+			//==================================================================================
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+			
+			
+			
+		]]>
+	</fx:Script>
+	
+	<!--==============================================
+	VIEW MODE
+	==================================================-->
+	
+	<s:Group 
+		id="viewModeHGroup"
+		y="15"
+		width = "650"
+		height="50"
+		horizontalCenter="0"
+		includeInLayout="{viewModeHGroup.visible}"
+		mouseOver="group1_mouseOverHandler(event)" 
+		mouseUp="group1_mouseUpHandler(event)"
+		mouseOut="group1_mouseOutHandler(event)"
+		>	
+		
+		
+		<!--s:Label id="titleLabel"
+				 color="{inputTextColor}"
+				 fontSize="18"
+				 x="15"
+				 width="500"
+				 text="{title}"
+				 
+				 mouseOver="group1_mouseOverHandler(event)" 
+				 mouseUp="group1_mouseUpHandler(event)"
+				 mouseOut="group1_mouseOutHandler(event)"
+				 
+				 /-->
+		
+		<mx:TextArea id="titleLabel"
+				 color="{inputTextColor}"
+				 fontSize="18"  
+				 x="15"
+				 width="600"
+				 borderStyle="none"
+				 height="100%"
+				 htmlText="{title}"
+				 focusAlpha="0"
+				 focusEnabled="false"
+				 editable="false"
+				 mouseOver="group1_mouseOverHandler(event)"  
+				 mouseUp="group1_mouseUpHandler(event)"
+				 mouseOut="group1_mouseOutHandler(event)"
+				 
+				 />
+		
+		<mx:TextArea id="arrowLabel"
+					 color="{inputTextColor}"
+					 fontSize="18"  
+					 x="615"
+					 width="30"
+					 borderStyle="none"
+					 height="100%"
+					 text=">"
+					 focusAlpha="0"
+					 focusEnabled="false"
+					 editable="false"
+					 mouseOver="group1_mouseOverHandler(event)" 
+					 mouseUp="group1_mouseUpHandler(event)"
+					 mouseOut="group1_mouseOutHandler(event)"
+					 visible="false"
+					 
+					 />
+		
+		
+		
+		
+		
+	</s:Group>
+	
+	
+	
+	
+	
+	
+</s:Group>

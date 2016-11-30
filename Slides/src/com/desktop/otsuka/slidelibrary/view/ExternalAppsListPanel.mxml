@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 width="724" height="768"
+		 >
+	<s:Rect width="724" height="720" y = "45">
+		<s:fill>
+			<s:SolidColor color="0xdddddd" />
+		</s:fill>
+	</s:Rect>
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.ClinicalPathwaysLauncher;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import flash.utils.setTimeout;
+			
+			private var clinicalPathwaysLauncher:ClinicalPathwaysLauncher;
+			
+			public function init():void{	
+				populateTheAppsList();
+			}
+			
+			// =====================================================================================
+			//  POPULATE THE LISTS
+			// =====================================================================================
+			
+			private function populateTheAppsList( ):void{
+				
+				appsVGroup.removeAllElements();
+				
+					var appTileRenderer:ResourceTileRenderer = makeReferenceTileRenderer(  );
+					appsVGroup.addElement(appTileRenderer);
+				
+				appsVGroup.visible = true;
+			}
+			
+			private function makeReferenceTileRenderer(  ) : ResourceTileRenderer {
+				var resourceTile:ResourceTileRenderer = new ResourceTileRenderer(); 
+				resourceTile.title = "Clinical Pathways";
+		
+				resourceTile.addEventListener(MouseEvent.CLICK, function ( e:Event ):void {
+					onClinicalPathwaysClick();
+				});
+				return resourceTile;
+			}
+			
+			private function onClinicalPathwaysClick(event:Event=null):void{
+				if ( clinicalPathwaysLauncher == null )
+				{
+					clinicalPathwaysLauncher = new ClinicalPathwaysLauncher();
+					clinicalPathwaysLauncher.addEventListener( SlidesEvent.EXTERNAL_APP_CLOSED, onExternalAppClose );
+				}
+				// minimize the app
+				( this.parent as SlideSystemView).modalCanvas.visible = true;
+				setTimeout( minimizeApp, 100 ); 
+				
+			}
+			
+			public function minimizeApp () : void { 
+				(( this.parent as SlideSystemView).parentApplication as Slides).nativeWindow.minimize();
+				clinicalPathwaysLauncher.launchAsNativeProcess();
+			}
+			
+			public function onExternalAppClose( o:Object = null ) :void {
+				(( this.parent as SlideSystemView).parentApplication as Slides).nativeWindow.maximize();
+				(( this.parent as SlideSystemView).parentApplication as Slides).nativeWindow.x = (Capabilities.screenResolutionX - (( this.parent as SlideSystemView).parentApplication as Slides).nativeWindow.width) / 2;
+				(( this.parent as SlideSystemView).parentApplication as Slides).nativeWindow.y = (Capabilities.screenResolutionY - (( this.parent as SlideSystemView).parentApplication as Slides).nativeWindow.height) / 2;
+				( this.parent as SlideSystemView).modalCanvas.visible = false;
+				setTimeout( function ():void{ centerAppOnScreen();} , 500);
+				
+				
+			}
+			public function centerAppOnScreen( o:Object = null):void{
+				(( this.parent as SlideSystemView).parentApplication as Slides).nativeWindow.x = (Capabilities.screenResolutionX - (( this.parent as SlideSystemView).parentApplication as Slides).nativeWindow.width) / 2;
+				(( this.parent as SlideSystemView).parentApplication as Slides).nativeWindow.y = (Capabilities.screenResolutionY - (( this.parent as SlideSystemView).parentApplication as Slides).nativeWindow.height) / 2;
+			}
+			
+			
+			
+			//================================================================================================
+			// GETTERS AND SETTERS
+			//================================================================================================
+			
+			public static function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+		]]>
+	</fx:Script>
+	
+	
+	<!-- background -->
+	
+	<!-- optionalBackgroun.png = 302x46 needs to be 724x46-->
+	<s:Image id="greyTitleBar"
+			 source= "@Embed('assets/images/optionalBackground.png')"
+			 scaleX="2.3974"
+			 scaleY="1.02"
+			 y = "-1"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	<!-- =========================================================================================
+	Screen Title 
+	========================================================================================= -->
+	
+	<s:Label id="screenTitle"
+			 text="Clinical Pathways"
+			 width="100%"
+			 height="45"
+			 y="20"
+			 horizontalCenter="0"
+			 fontSize="18"
+			 color = "0x777777"
+			 textAlign="center"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	<!-- i think the background is just plain grey - no image -->
+	
+	<!-- =========================================================================================
+	MAIN GROUP WINDOWS 
+	========================================================================================= -->
+	
+	
+	<s:Scroller 
+		height="510" 
+		x="37" y = "170"
+		>
+		
+		<s:VGroup id="appsVGroup"
+				  width="650"			 
+				  y = "170"
+				  gap="1"	
+				  height="510"
+				  >
+			
+		</s:VGroup>	
+	</s:Scroller>
+	
+	
+</s:Group>

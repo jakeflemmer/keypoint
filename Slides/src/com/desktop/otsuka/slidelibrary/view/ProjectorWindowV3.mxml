@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Window xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		  xmlns:s="library://ns.adobe.com/flex/spark" 
+		  xmlns:mx="library://ns.adobe.com/flex/mx"
+		  showStatusBar="false"
+		  >
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			
+			public var myName:String = "";
+			public var animatingSwf:MovieClip;// = new SWFLoader();
+			
+			
+			// =========================================================================
+			// PUBLIC FUNCTIONS            =============================================
+			// =========================================================================
+			
+			public function init():void{
+			}
+			public function displayVideo(source:String):void{
+				videoPlayer.source = source;
+				videoPlayer.play();
+				
+				videoPlayer.visible = true;
+				
+				imageWindow.visible = false;
+				animatingSwfGroup.visible = false;
+			}			
+			public function displayImage(source:Object):void{
+				
+				imageWindow.source = source;
+				
+				imageWindow.visible = true;
+								
+				videoPlayer.visible = false;
+				animatingSwfGroup.visible = false;
+			}
+			public function displayAnimatingSwf(content:DisplayObject):void{
+				this.animatingSwf = content as MovieClip;
+				content.height = animatingSwfGroup.height;
+				content.width = animatingSwfGroup.width;
+				animatingSwfGroup.removeChildren();
+				animatingSwfGroup.addChild(content);
+				
+				animatingSwfGroup.visible = true;
+				
+				setTimeout( function () :void{
+					
+					videoPlayer.visible = false;
+					imageWindow.visible = false;
+					
+				},100);
+//				videoPlayer.visible = false;
+//				imageWindow.visible = false;
+			}
+			
+			//=================================================================================
+			// DIM or BLACKOUT SLIDE
+			//=================================================================================
+			
+//			public var SpriteElement:SpriteVisualElement = new SpriteVisualElement ();
+//			public var mySprite:Sprite = new Sprite();
+			
+			public function createDimOverlay():void
+			{
+				dimOverlayGroup.visible = true;
+				//dimOverlayShape.visible = false;
+				dimOverlayShape.width = stage.stageWidth;
+				dimOverlayShape.height = stage.stageHeight;
+				dimOverlayGroup.visible = false;
+				
+				/* 	mySprite.graphics.lineStyle(1,0x000000,1.0);
+				mySprite.graphics.beginFill(0x000000,1);
+				mySprite.graphics.drawRect(0,0,stage.stageWidth,stage.stageHeight );
+				trace("DIM FUNCTION");
+				
+				SpriteElement.addChild(mySprite);
+				SpriteElement.alpha =0;
+				this.addElement(SpriteElement); */
+			}
+			
+			public function removeDimOverlay():void
+			{  
+				//this.removeElement(SpriteElement);
+				dimOverlayGroup.visible = false
+			}
+			
+			public function dimOverlay(dimToggle:Boolean):void
+			{
+				//var VideoPlayer_View:PresentView;
+				trace ("dimToggle "+dimToggle);
+				
+				if(dimToggle){	
+					dimOverlayGroup.visible = true;
+					//dimOverlayShape.visible = true;
+					//SpriteElement.alpha =1;
+				}
+				else if(!dimToggle)
+				{
+					dimOverlayGroup.visible = false;
+					//dimOverlayShape.visible = false;
+					
+					//SpriteElement.alpha =0;
+				}
+			} 
+			
+			//=================================================================================
+			// TITLE SLIDE
+			//=================================================================================
+			
+			public function displayTitleSlideWidget(titleSlideWidget:TitleSlideWidget):void{
+				
+				titleSlideWidget.scaleX = imageWindow.width/titleSlideWidget.width;
+				titleSlideWidget.scaleY = imageWindow.height/titleSlideWidget.height;
+				//this.addElement( titleSlideWidget );
+				widgetGroup.addElement(titleSlideWidget );
+			}
+			
+			//=================================================================================
+			// GIVE THE SWF LOADER
+			//=================================================================================
+			
+			//			public function getTheSwfLoader():void{
+			//				var bitmap:Bitmap = screenCaptureTheActualSwf(); // which calls				
+			//				projectTheScreenCapture(bitmap);
+			//				setTimeout(function():void{
+			//					group.removeAllElements();
+			//					var se:SlidesEvent = new SlidesEvent(SlidesEvent.SEND_SWF_FROM_PROJECTOR_TO_PREVIEW);
+			//					se.swfLoader = swfLoader;
+			//					dispatchEvent(se);	
+			//				},100);				
+			//			}
+			//			public function projectScreenCapture():void{
+			//				var bitmap:Bitmap = screenCaptureTheActualSwf(); // which calls				
+			//				projectTheScreenCapture(bitmap);								
+			//			}
+			//			private function screenCaptureTheActualSwf():Bitmap{
+			//				trace("projector window screen capturing - group kids = " + group.numElements);
+			//				var bmpd:BitmapData = new BitmapData(group.width,group.height);
+			//				bmpd.draw(group,null,null,null,null,true);	
+			//				var bmp:Bitmap = new Bitmap(bmpd);
+			//				return bmp;
+			//				
+			//			}
+			//			private function projectTheScreenCapture(bitmap:Bitmap):void{
+			//				trace("projector window displaying screen capture now");				
+			//				imageWindow.source = bitmap;
+			//				setTimeout(function ():void{
+			//					imageWindow.visible = true;	
+			//				},100);
+			//				
+			//			}
+			
+			//=================================================================================
+			// RECEIVE THE SWF LOADER
+			//=================================================================================
+			
+			//			public function receiveSwfLoaderBack(swfLdr:SWFLoader):void{
+			//				
+			//				this.swfLoader = swfLdr;
+			//				swfLdr.width = group.width;
+			//				swfLdr.height = group.height;
+			//				group.addElement(swfLdr);
+			//				trace("real swf added back to projector window");
+			//				setTimeout(function ():void {
+			//					imageWindow.visible = false;
+			//					videoPlayer.visible = false;
+			//					trace("projector screen captured image hidden");
+			//				},100);
+			//			}			
+			
+			// =========================================================================
+			// WORKER FUNCTIONS            =============================================
+			// =========================================================================
+			
+			
+			
+			
+			
+			protected function clickCatcherCanvas_clickHandler(event:MouseEvent):void
+			{
+				dispatchEvent(new SlidesEvent(SlidesEvent.ON_ANIMATING_SWF_CLICK));
+				trace("click catcher caufht click");
+								
+			}
+			protected function onSwfClick(event:MouseEvent):void
+			{
+				event.stopImmediatePropagation(); // does nothing
+				
+			}
+			
+		]]>
+	</fx:Script>
+	
+	
+	<!--s:Group 
+	id="group"
+	/-->
+	
+	<s:Image id="imageWindow"
+			 
+			 fillMode="scale"
+			 scaleMode="stretch"
+			 smooth="true"
+			 smoothingQuality="high"
+			 click="trace('clicked image');"
+			 includeInLayout="{imageWindow.visible}"
+			 />
+	
+	
+			   
+	<s:SpriteVisualElement id="animatingSwfGroup" includeInLayout="{animatingSwfGroup.visible}" visible="false" click="onSwfClick(event)" />
+	
+	<mx:Canvas id="clickCatcherCanvas" width="100%" height="100%" click="clickCatcherCanvas_clickHandler(event)" backgroundAlpha="0.01" backgroundColor="#000000"/>
+	
+	<s:VideoDisplay id="videoPlayer"					
+					includeInLayout="{videoPlayer.visible}"
+					scaleMode="stretch"
+					/>
+	
+	<s:Group id="widgetGroup" includeInLayout="false"/>
+	
+	<s:Group id="dimOverlayGroup" includeInLayout="{dimOverlayGroup.visible}">
+		
+		
+		<s:Rect id="dimOverlayShape" >
+			<s:fill>
+				<s:SolidColor color="0x000000"/>
+			</s:fill>
+			
+			
+		</s:Rect>
+	</s:Group>
+	
+	
+</s:Window>

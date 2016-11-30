@@ -1,0 +1,454 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 width="724" height="768"
+		 >
+	<s:Rect width="724" height="720" y = "45">
+		<s:fill>
+			<s:SolidColor color="0xdddddd" />
+		</s:fill>
+	</s:Rect>
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import flash.net.navigateToURL;
+			
+			import mx.controls.Alert;
+			import mx.controls.DateField;
+			import mx.controls.TextArea;
+			import mx.core.mx_internal;
+			
+			
+			private var resourcesArray:Array;
+			private var referencesArray:Array;
+			private var _presentationSelectedId:int = 0;
+			private var selectedPresentationObject:Object;
+			
+			private var pdfWindow:FullScreenPDFViewer;
+			
+			private var _screen:Screen;
+			private var _screenBounds:Rectangle;
+			
+			private var selectedBrandObject:Object;
+			
+			private var deckResourcesArray:Array;
+			private var brandResourcesArray:Array;
+			
+			public function init(brandObject:Object):void{	
+				this.selectedBrandObject = brandObject;
+				loadTheResources();
+			}
+			
+			// =====================================================================================
+			//  LOAD THE PRESENTATIONS
+			// =====================================================================================
+			
+			public function loadTheResources():void{
+				this.brandResourcesArray = dbModel.getResourcesByBrandId( selectedBrandObject.id );
+				var allPresentations:Array = dbModel.getAllPresentationsByDate(dbModel.systemSQLConnection );
+				var presentations:Array = filterByBrands( allPresentations , selectedBrandObject );
+				this.deckResourcesArray = new Array();
+				for ( var i:uint = 0; i < presentations.length; i++ )
+				{
+					var presentation:Object = presentations[i];
+					var presentationReferences:Array = dbModel.getResourcesByDeckId( presentation.presentation_id );
+					if ( presentationReferences && presentationReferences.length > 0 )
+					{
+						this.deckResourcesArray.push( presentation );    	   
+					}
+				}
+				populateTheResourcesList();				
+			}
+			public static function userHasResources ( brandObject:Object ) : Boolean {
+				var brandResources:Array = dbModel.getResourcesByBrandId( brandObject.id );
+				var allPresentations:Array = dbModel.getAllPresentationsByDate(dbModel.systemSQLConnection );
+				var presentations:Array = filterByBrands( allPresentations , brandObject );
+				var deckResources:Array = new Array();
+				for ( var i:uint = 0; i < presentations.length; i++ )
+				{
+					var presentation:Object = presentations[i];
+					var presentationReferences:Array = dbModel.getResourcesByDeckId( presentation.presentation_id );
+					if ( presentationReferences && presentationReferences.length > 0 )
+					{
+						deckResources.push( presentation );    	   
+					}
+				}
+				return ( ( brandResources && brandResources.length > 0 ) || ( deckResources && deckResources.length > 0 ) );
+			}
+			public function loadTheReferences( presentationObject:Object ):void{
+				referencesArray = dbModel.getResourcesByDeckId( presentationObject.presentation_id );
+				populateTheReferencesList( presentationObject.resources_title );
+			}
+			public static function filterByBrands(results:Array, brandObject:Object ):Array{
+				var filteredArray:Array = new Array();
+				for ( var i : uint = 0 ; i < results.length; i++)
+				{
+					var presentation:Object = results[i];
+					if ( presentation.brand_id == brandObject.id )
+					{
+						filteredArray.push(presentation);
+					}
+				}
+				return filteredArray;
+			}
+			
+			// =====================================================================================
+			//  POPULATE THE LISTS
+			// =====================================================================================
+			
+			private function populateTheResourcesList():void{
+				
+				resourcesVGroup.removeAllElements();
+				for ( var i :uint = 0 ; i < this.brandResourcesArray.length; i++)
+				{
+					var brandResource:Object = brandResourcesArray[i];
+					var brandResourceTile:ResourceTileRenderer = createNewResourceTile( brandResource );										
+					resourcesVGroup.addElement( brandResourceTile );
+				}
+				
+				//populateAddedUnixTimeFieldOntoPresentationObjects( deckResourcesArray );
+				
+				deckResourcesArray.sortOn( "resources_order" , Array.NUMERIC);
+				   
+				for ( var j :uint = 0 ; j < this.deckResourcesArray.length; j++)
+				{
+					var deckResource:Object = deckResourcesArray[j];
+					//var referencesAssociatedToDeck:Array = dbModel.getPresentation( dbModel.systemSQLConnection, deckResource.presentation_id );
+					//var referencesTitle:String = referencesAssociatedToDeck[0].resources_title as String;
+					var deckResourceTile:ResourceTileRenderer = createNewResourceTile( deckResource );										
+					resourcesVGroup.addElement( deckResourceTile );
+				}
+				
+				resourcesVGroup.visible = true;
+				referencesVGroup.visible = false;
+				screenTitle.text = "Resources";
+			}
+			
+//			private function populateAddedUnixTimeFieldOntoPresentationObjects( array:Array ) : void{
+//				var date:Date;
+//				var unixtime:Number;
+//				
+//				for ( var i :uint = 0; i < array.length; i++ )
+//				{
+//					var po:Object = array[i];
+//					var dateString:String = po["date_created"] as String;
+//					date = DateField.stringToDate(dateString,"YYYY-MM-DD");
+//					if ( ! date )
+//					{
+//						throw new Error(" couldn't understand the date : " + po["date_created"]);
+//					}
+//					unixtime = date.time;	
+//					po.addedUnixTime = unixtime;
+//				}
+//				
+//			}
+				
+			private function populateTheReferencesList( screenTitleText:String ):void{
+				
+				referencesVGroup.removeAllElements();
+				
+				referencesArray.sortOn( "refNumber" , Array.NUMERIC);
+				
+				for ( var i :uint = 0 ; i < this.referencesArray.length; i++)
+				{
+					var reference:Object = referencesArray[i];
+					var referenceTileRenderer:ResourceTileRenderer = makeReferenceTileRenderer( reference );
+					referencesVGroup.addElement(referenceTileRenderer);
+				}
+				
+				resourcesVGroup.visible = false;
+				referencesVGroup.visible = true;
+				screenTitle.text = screenTitleText;
+			}
+			
+			private function makeReferenceTileRenderer( reference : Object ) : ResourceTileRenderer {
+				var resourceTile:ResourceTileRenderer = new ResourceTileRenderer(); 
+				resourceTile.resourceId = reference.id;
+				resourceTile.title = convertAdminWiziWigHtmlTagsToAdobeHtmlTags(reference.html_title);
+				// doesnt work -- var numberOfTextRows:int = ( resourceTile.titleLabel as TextArea).mx_internal::getTextField().numLines;
+				
+//				if ( numberOfTextRows > 1 )
+//				{
+//					resourceTile.height = 80; 
+//					resourceTile.viewModeHGroup.height = 80;
+//					resourceTile.borderRect.height = 80;
+//				}
+//				if ( numberOfTextRows > 2 )
+//				{
+//					resourceTile.height = 105; 
+//					resourceTile.viewModeHGroup.height = 105;
+//					resourceTile.borderRect.height = 105;
+//				}
+				var taHeight:Number = resourceTile.titleLabel.height;
+				if ( taHeight > 25 )
+				{
+					resourceTile.height = 80; 
+					resourceTile.viewModeHGroup.height = 80;
+					resourceTile.borderRect.height = 80;
+				}
+				resourceTile.addEventListener(MouseEvent.CLICK, function ( e:Event ):void {
+					var resourceId:int = (e.currentTarget as ResourceTileRenderer).resourceId;
+					showFullScreenPDF( getResourceURI( resourceId ) );
+				});
+				return resourceTile;
+			}
+//			private function makeReferenceLinkButton( reference : Object ) : TextArea {
+//				//				var linkButton:LinkButton = new LinkButton(); 
+//				//				linkButton.label = reference.stripped_title;
+//				//				linkButton.htmlt
+//				//				return linkButton;
+//				var textArea:TextArea = new TextArea();
+//				textArea.htmlText = convertAdminWiziWigHtmlTagsToAdobeHtmlTags( reference.html_title );
+//				textArea.id = reference.id;
+//				textArea.setStyle("color", "blue");
+//				textArea.setStyle( "contentBackgroundColor","0xdddddd");
+//				textArea.setStyle("borderStyle", "none");
+//				textArea.setStyle( "textDecoration", "underline" );
+//				textArea.setStyle( "fontSize", "14" );
+//				textArea.setStyle( "focusEnabled", "false" );
+//				textArea.setStyle( "focusAlpha", "0" );
+//				textArea.width = 635;
+//				textArea.height = 100;
+//				textArea.editable = false;
+//				textArea.addEventListener(MouseEvent.CLICK, function ( e:Event ):void {
+//					var resourceId:String = (e.currentTarget as TextArea).id;
+//					showFullScreenPDF( getResourceURI( Number( resourceId )) );
+//				});
+//				textArea.addEventListener(MouseEvent.MOUSE_OVER, function ( e:Event ):void {
+//					var ta:TextArea = (e.currentTarget as TextArea);
+//					ta.setStyle("color", "0xaa00aa");
+//				});
+//				textArea.addEventListener(MouseEvent.MOUSE_OUT, function ( e:Event ):void {
+//					var ta:TextArea = (e.currentTarget as TextArea);
+//					ta.setStyle("color", "blue");
+//				});
+//				return textArea;
+//			}
+			
+			private function convertAdminWiziWigHtmlTagsToAdobeHtmlTags( wiziString : String ) : String {
+				
+				var adobeString:String = wiziString;
+				adobeString = adobeString.replace("<strong>", "<b>" );
+				adobeString = adobeString.replace("</strong>", "</b>" );
+				adobeString = adobeString.replace("<em>", "<i>" );
+				adobeString = adobeString.replace("</em>", "</i>" );
+				return adobeString;
+			}
+			
+			private function createNewResourceTile( presentationOrResourceObject:Object , resourcesTitle:String = ""):ResourceTileRenderer{
+				
+				var resourceTile:ResourceTileRenderer = new ResourceTileRenderer(); 
+				resourceTile.resourceId = presentationOrResourceObject.id;
+				if ( presentationOrResourceObject.hasOwnProperty("presentation_name") )
+				{
+					resourceTile.presentationObject = presentationOrResourceObject;
+					//resourceTile.title = presentationOrResourceObject.presentation_name + " References"; // change 11/7/2013
+					resourceTile.title = presentationOrResourceObject.resources_title;
+					resourceTile.arrowLabel.visible = true;
+				}else{
+					//resourceTile.title = presentationOrResourceObject.stripped_title;
+					resourceTile.title = convertAdminWiziWigHtmlTagsToAdobeHtmlTags(presentationOrResourceObject.html_title);
+				}
+				resourceTile.addEventListener(Event.SELECT, onResourceSelected);
+				return resourceTile;
+			}
+			
+			
+			
+			// =====================================================================================
+			//  VIEWING THE PRESENTATION
+			// =====================================================================================
+			private function onResourceSelected(e:Event):void{
+				
+				var presentationObject:Object = (e.target as ResourceTileRenderer).presentationObject;	
+				if ( presentationObject != null )
+				{
+					loadTheReferences( presentationObject );
+				}
+				else
+				{
+					var resourceId:int = (e.target as ResourceTileRenderer).resourceId;
+					showFullScreenPDF( getResourceURI( resourceId ) );
+				}
+			}
+			
+			private function getResourceURI( resourceId:Number ):String{
+				// presumably it is somewhere in the application local storage or whatever located by id
+				var locationString:String = "";
+				var destinationFolder:File;
+				var filename:String = "";
+				
+				var resourcesFolder:File = File.applicationStorageDirectory.resolvePath("resources" + File.separator);
+				
+				destinationFolder = resourcesFolder.resolvePath( resourceId.toString() );
+				if( ! destinationFolder.exists ) 
+				{
+					Alert.show("Unable to locate downloaded resource PDF with id = " + resourceId , "Attention" );
+				}
+				
+				filename = resourceId.toString();
+				filename += ".pdf";
+				locationString = destinationFolder.url +"/"+ filename;
+				
+				return locationString;
+			}
+			
+			// =====================================================================================
+			//  VIEW FULL SCREEN PDF
+			// =====================================================================================
+			
+			private function showFullScreenPDF( pdfLocation:String ):void{
+				
+				navigateToURL(new URLRequest( pdfLocation ));
+				
+				// NOTE : The below code is fully functioning and launches the PDF full screen in an indepedent window ( not in the browser )
+				/*
+				
+				_screen= Screen.screens[0];
+				_screenBounds = _screen.bounds;
+				
+				pdfWindow = new FullScreenPDFViewer();
+				pdfWindow.open();
+				
+				pdfWindow.nativeWindow.x = _screenBounds.x;
+				pdfWindow.nativeWindow.y = _screenBounds.y;
+				pdfWindow.nativeWindow.width = _screenBounds.width;
+				pdfWindow.nativeWindow.height = _screenBounds.height;
+				
+				pdfWindow.webView.width = _screenBounds.width;// * .95;
+				pdfWindow.webView.height = _screenBounds.height;// * .95;
+				pdfWindow.webView.location = pdfLocation + ".pdf";	// DANGER + ",pdf" just added !
+				
+				pdfWindow.webView.addEventListener(KeyboardEvent.KEY_UP, keyUpHandlers);
+				pdfWindow.stage.addEventListener(KeyboardEvent.KEY_UP, keyUpHandlers);
+				
+				pdfWindow.activate();
+				*/
+			}
+			
+			protected function keyUpHandlers(event:KeyboardEvent):void
+			{
+				trace("resourcesListPanel keyUpHandler()");
+				switch( event.keyCode ) 
+				{ 
+					case Keyboard.ESCAPE :
+						pdfWindow.close();
+						break;
+					
+				}//end case
+			}	
+			
+			// =====================================================================================
+			//  TAB CLICK HANDLERS
+			// =====================================================================================
+			
+			public function showTheResources():void{
+				resourcesVGroup.visible = true;
+				//customPresentationsVGroup.visible = false;
+			}
+			public function showTheCustomPresentations():void{
+				resourcesVGroup.visible = false;
+				//customPresentationsVGroup.visible = true;
+			}		
+			
+			//================================================================================================
+			// GETTERS AND SETTERS
+			//================================================================================================
+			
+			public static function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+		]]>
+	</fx:Script>
+	
+	
+	<!-- background -->
+	
+	<!-- optionalBackgroun.png = 302x46 needs to be 724x46-->
+	<s:Image id="greyTitleBar"
+			 source= "@Embed('assets/images/optionalBackground.png')"
+			 scaleX="2.3974"
+			 scaleY="1.02"
+			 y = "-1"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	<!-- =========================================================================================
+	Screen Title 
+	========================================================================================= -->
+	
+	<s:Label id="screenTitle"
+			 text="Resources"
+			 width="100%"
+			 height="45"
+			 y="20"
+			 horizontalCenter="0"
+			 fontSize="18"
+			 color = "0x777777"
+			 textAlign="center"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	<!-- i think the background is just plain grey - no image -->
+	
+	<!-- =========================================================================================
+	MAIN GROUP WINDOWS 
+	========================================================================================= -->
+	
+	
+	<s:Scroller 
+		height="510" 
+		x="37" y = "170"
+		visible="{resourcesVGroup.visible}"
+		includeInLayout="{resourcesVGroup.visible}"
+		>
+		
+		<s:VGroup id="resourcesVGroup"
+				  width="650"			 
+				  y = "170"
+				  gap="1"	
+				  height="510"
+				  >
+			
+		</s:VGroup>	
+	</s:Scroller>
+	
+	<s:Scroller 
+		height="510" 
+		x="37" y = "170"
+		visible="{referencesVGroup.visible}"
+		includeInLayout="{referencesVGroup.visible}"
+		>
+		
+		<s:VGroup id="referencesVGroup"
+				  width="650"			
+				  gap="1"
+				  height="510"
+				  >
+		</s:VGroup>
+	</s:Scroller>
+	
+	<s:TextArea id="footerCopyTextForReferences"
+				bottom="15"
+				x = "50"
+				height="35"
+				borderVisible="false"
+				contentBackgroundAlpha="0"
+				width="580"
+				visible="{referencesVGroup.visible}"
+				color="0x000077"
+				text ="Please note that Otsuka and Lundbeck are required to report the value of these provided references pursuant to applicable federal and/or state laws."
+				editable="false"
+				selectable="false"
+				/>
+	
+	
+</s:Group>

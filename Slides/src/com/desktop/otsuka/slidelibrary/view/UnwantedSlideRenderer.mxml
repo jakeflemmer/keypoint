@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 includeInLayout="{this.visible}"
+		 >
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.SlidesUtilities;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import mx.managers.PopUpManager;
+			public static const SMALL_THUMB_WIDTH:Number = 125;
+			public static const SMALL_THUMB_HEIGHT:Number = 83;
+			
+			public var optionalDeck:Object;
+			
+			public var slide:Object;
+			public var slideId:int;
+			
+			public function init($slide:Object):void{
+				this.slide = $slide;
+				this.slideId = $slide.slide_id;
+				
+				denotationLabel.setStyle("color","#FFFFFF");
+				if ( SlidesUtilities.slideIsBundledSlide(slide) )
+				{					
+					bundleHighlightRect.visible = true;
+					denotationLabel.text = slide.denotationText;
+					if ( SlidesUtilities.bundledSlideIsInSequentialBundle(slide))
+					{
+						denotationLabel.text += ( slide.bundle_position as int).toString();
+					}
+					
+					
+				}
+				else 
+				{
+					bundleHighlightRect.visible = false;
+					denotationLabel.text = "";
+				}
+				
+//				if ( slide.denotationColor != null )
+//				{
+//					if ( denotationLabel.text == "" )
+//					{
+//						denotationLabel.text = "   .";
+//						denotationLabel.setStyle("color",slide.denotationColor);
+//					}
+//					denotationLabel.setStyle("backgroundColor",slide.denotationColor);
+//					
+//				}
+				
+				if ( slide.denotationColor != null )
+				{
+					if ( denotationLabel.text == "" )
+					{
+						denotationBundleCanvas.visible = true;
+						denotationBundleCanvas.setStyle("backgroundColor",slide.denotationColor);
+						denotationLabel.setStyle("color",slide.denotationColor);
+					}else{
+						denotationBundleCanvas.visible = false;
+					}
+					denotationLabel.setStyle("backgroundColor",slide.denotationColor);
+				}else{
+					denotationBundleCanvas.visible = false;
+				}
+				
+				if ( denotationLabel.text == "" )
+				{
+					denotationLabel.visible = false;
+				}else{
+					denotationLabel.visible = true;
+				}
+			}
+			
+			public function updateSource(bitmap:Bitmap):void{
+				if ( ! bitmap ) return;
+				thumbnailImage.source = bitmap;		
+			}
+			
+				
+			protected function thumbnailImage_clickHandler(event:MouseEvent):void
+			{
+				var mustShowPopup:Boolean = false;
+				var cv:CustomizeView = getCustomizeView();
+				
+				if ( slide.is_swappable )
+				{
+					
+					// check if the swap mate is a bundle
+					// if it is make a popup alert
+					// else don't
+					var slideOriginalSSID:Number = slide.sec_slide_id_plus_cust_pres_id - ( cv._presentationObject.custom_presentation_id * 10000);
+					if ( cv.combosMap[slideOriginalSSID] > 0 ) 
+					{
+						if ( SlidesUtilities.idIsBundleId(cv.combosMap[slideOriginalSSID]) )
+						{
+							if ( SlidesUtilities.bundleIsInWantedSide( cv.combosMap[slideOriginalSSID] , cv._wantedSlidesAC.source ) )
+							{
+								mustShowPopup = true;
+							}
+						}else{
+							dispatchEvent(new Event("REMOVE_ME"));	
+							return;
+						}
+					}
+					
+					if ( cv.combosMap[slide.bundle_id] > 0 ) 
+					{
+						if ( SlidesUtilities.idIsBundleId(cv.combosMap[slide.bundle_id]) )
+						{
+							if ( SlidesUtilities.bundleIsInWantedSide( cv.combosMap[slide.bundle_id] , cv._wantedSlidesAC.source ) )
+							{
+								mustShowPopup = true;
+							}
+						}else{
+							dispatchEvent(new Event("REMOVE_ME"));	
+							return;
+						}
+					}
+				}
+				
+				//if ( SlidesUtilities.slideIsBundledSlide(slide) || mustShowPopup )
+				if ( mustShowPopup )
+				{
+					if ( dbModel.dontShowBundleAlertAgain )
+					{
+						dispatchEvent(new Event("REMOVE_ME"));	
+						return;
+					}
+					
+					
+					var removeBundlePopup:PopupAlert = PopUpManager.createPopUp(cv,PopupAlert,true) as PopupAlert;
+					
+					removeBundlePopup.setWidthAndHeight(400,200);				
+					removeBundlePopup.bodyTextArea.text = DatabaseModel.MESSAGE_32;
+					
+					removeBundlePopup.cancelButton.visible = false;
+					removeBundlePopup.dontShowAgainCheckBox.visible = true;
+					removeBundlePopup.yesButton.addEventListener(MouseEvent.CLICK, function(e:Event):void{
+						PopUpManager.removePopUp(removeBundlePopup);
+						dbModel.dontShowBundleAlertAgain = removeBundlePopup.dontShowAgainCheckBox.selected;
+						dispatchEvent(new Event("REMOVE_ME"));							
+					});
+					removeBundlePopup.noButton.visible = true;
+					removeBundlePopup.noButton.addEventListener(MouseEvent.CLICK, function(e:Event):void{
+						dbModel.dontShowBundleAlertAgain = removeBundlePopup.dontShowAgainCheckBox.selected;
+						PopUpManager.removePopUp(removeBundlePopup);					
+					});
+					
+					PopUpManager.centerPopUp(removeBundlePopup);
+				}else{
+					dispatchEvent(new Event("REMOVE_ME"));	
+				}
+								
+			}
+			
+			protected function previewIconImage_clickHandler(event:MouseEvent):void
+			{
+				dispatchEvent(new Event("PREVIEW_ME"));			
+			}
+			
+			private function getCustomizeView():CustomizeView{
+				var displayObject:DisplayObject = this;
+				
+				for ( var i :uint = 0 ; i < 1000; i++)
+				{
+					if ( displayObject is CustomizeView )
+					{
+						return displayObject as CustomizeView;
+					}else{
+						displayObject = displayObject.parent;	
+					}
+				}
+				return null;
+			}
+			
+			
+			
+			
+			
+			
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}
+			
+		]]>
+	</fx:Script>
+	
+	<!-- OUTER BORDER WITH DROPSHADOWS -->
+	<s:Rect id="outerBlackBorder"
+			width="125" height="93"
+			radiusX="2" radiusY="2"
+			>
+		<s:stroke>
+			<s:SolidColorStroke color="0x000000" weight="2"/>
+		</s:stroke>
+		<s:filters>
+			<s:DropShadowFilter color="0x000000"  /> 
+		</s:filters>	
+	</s:Rect>
+	
+	
+	<s:Image id="thumbnailImage" 
+			 width="124" height="93"
+			 fillMode="scale"
+			 scaleMode="stretch"
+			 click="thumbnailImage_clickHandler(event)"
+			 
+			 />
+	<!-- smooth="true"	removed to improve performance
+	smoothingQuality="high" -->
+	
+	
+	<s:Label id="denotationLabel"
+			 x = "0"
+			 bottom="0"
+			 fontWeight="bold"
+			 color="white"
+			 backgroundAlpha="1"
+			 backgroundColor="0x000000"
+			 fontSize="14"
+			  paddingRight="5" paddingTop="5"
+			  paddingLeft="5" paddingBottom="5"
+			 />
+	
+	
+	<!-- 28x30 -->
+	<s:Image id="previewIconImage"
+			 source = "@Embed('assets/images/previewIcon.png')"
+			 x = "96"
+			 y = "63"
+			 click="previewIconImage_clickHandler(event)"
+			 />
+	
+	
+	<!-- V6 DENOTATION COLOR SQUARE -->
+	
+	<mx:Canvas id="denotationBundleCanvas"
+			   width="30" height="20"
+			   backgroundAlpha="1"
+			   backgroundColor="#000000"
+			   bottom="0"
+			   />
+	
+	<!-- BUNDLE HIGHLIGHT -->
+	<s:Rect id="bundleHighlightRect"
+			width="125" height="93"
+			radiusX="2" radiusY="2"
+			visible="false"
+			includeInLayout="true"
+			>
+		<s:stroke>
+			<s:SolidColorStroke color="0x000000" weight="5"/>
+		</s:stroke>			
+	</s:Rect>
+	
+	
+	
+</s:Group>

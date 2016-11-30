@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 xmlns:view="com.desktop.otsuka.slidelibrary.view.*"
+		 creationComplete="group1_creationCompleteHandler(event)"
+		 >
+	
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.SlideSystemController;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			import flash.utils.setTimeout;
+			
+			import mx.events.FlexEvent;
+			
+			public var controller:SlideSystemController = new SlideSystemController(this as SlideSystemView);
+			
+			protected function closeButton_clickHandler(event:MouseEvent):void
+			{
+				//(this.parentApplication as Slides).nativeWindow.close();
+				closeApplication(null);
+			}
+			
+			
+			protected function group1_creationCompleteHandler(event:FlexEvent):void
+			{
+				if ( ! stage)
+				{
+					setStageCloseEventListener(null);
+					return;
+				}
+				stage.nativeWindow.addEventListener(Event.CLOSING, closeApplication, false, 0, true); 
+			}
+			public function setStageCloseEventListener(e:Event=null):void{
+				if ( ! stage )
+				{
+					setTimeout(setStageCloseEventListener,1000);
+					return;
+				}
+				stage.nativeWindow.addEventListener(Event.CLOSING, closeApplication, false, 0, true); 
+			}
+			public function closeApplication(e:Event):void
+			{      
+				trace("closing all windows");
+				if ( e) e.preventDefault();
+				
+				var nativeWindows:Array = NativeApplication.nativeApplication.openedWindows;
+				
+				for ( var i:int = 0; i< nativeWindows.length; i++) 
+				{
+					if(!(nativeWindows[i] as NativeWindow).closed)
+					{
+						(nativeWindows[i] as NativeWindow).close();
+					}
+				}
+				exitAll(null);
+			}
+			
+			public function exitAll(e:Event):void
+			{
+				NativeApplication.nativeApplication.exit();
+				
+			}
+			
+			private function returnFromFullScreenView(e:Event):void{
+				fullSizePreviewWindowGroup.visible=false;
+				dbModel._activateKeys=true;
+				
+				
+			}
+			private function get dbModel():DatabaseModel{
+				return DatabaseModel.getInstance();
+			}		
+			
+		]]>
+	</fx:Script>
+	
+	<!-- ===================================================================================
+	BACKGROUND	    
+	=================================================================================== -->	
+	
+	
+	<s:Image source="@Embed('assets/images/background.png')" />
+	
+	<s:Image id="topBlueBarImg" source="@Embed('assets/images/top_blue_border.png')"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />	
+	
+	<s:Label id="titleLabel" text="Resource and Presentation Manager"
+			 color="white" fontSize="18"
+			 top="15"
+			 horizontalCenter="0"
+			 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+			 />
+	
+	
+	<!-- ===================================================================================
+	THE MAIN VIEWS 			    
+	=================================================================================== -->	
+	
+	<view:LoginView	id="loginView" 
+					width="100%" height="100%" 
+					/>
+	
+	<view:PresentationSelectionPanel id="presentationSelectionPanel" 
+									 visible="false"
+									 />
+	
+	<view:PresentationsListPanel id="presentationsListPanel" 
+								 x="300" 
+								 visible="false"
+								 />
+	
+	<view:ResourcesListPanel id="resourcesListPanel" 
+							 x="300" 
+							 visible="false"
+							 />
+	
+	<view:ExternalAppsListPanel id="externalAppsListPanel" 
+							 x="300" 
+							 visible="false"
+							 />
+	
+	<view:HelpListPanel id="helpListPanel" 
+								x="300" 
+								visible="false"
+								/>
+	
+	<view:PreviewView id="previewView"
+					  width="724" height="768"
+					  x = "300"
+					  visible="false"
+					  />  
+	
+	
+	
+	
+	<view:CustomizeView	id="customizeView"
+						visible="false"
+						width="100%" height="100%"
+						/>
+	
+	
+	<view:PresentView id="presentView"
+					  visible="false"
+					  width="100%" height="100%"
+					  />
+	
+	<view:PresentViewV3OrAbove id="presentViewV3OrAbove"
+							   visible="false"
+							   width="100%" height="100%"
+							   />		   
+	
+	<mx:Canvas id="modalCanvas"
+			   x="0" y ="0"
+			   width="100%" height="100%"
+			   alpha="0.5"
+			   backgroundColor="black"
+			   visible="false"
+			   />
+	
+	<!-- ===================================================================================
+	FULL SIZE PREVIEW 			    
+	=================================================================================== -->	
+	
+	<s:Group id="fullSizePreviewWindowGroup"
+			 x="0" y="0" height="100%" width="100%"
+			 visible="false"
+			 >
+		
+		<s:Rect y="45" x="0" width="100%" height="100%">
+			<s:fill>
+				<s:SolidColor color="0xdddddd"/>
+			</s:fill>
+		</s:Rect>
+		
+		<s:Image id = "topBlueBarImageForFullScreenPreviewImage"
+				 source="@Embed('assets/images/top_blue_border.png')"
+				 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+				 />
+		<s:Button id="backFromFullScreenPreviewButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.BackButtonSkin"
+				  top="10"
+				  left = "10"
+				  click="fullSizePreviewWindowGroup.visible=false"
+				  />
+		<s:SWFLoader id="fullSizePreviewWindow"
+					 x="12" y="50"	
+					 width = "1000"
+					 height="700"
+					 maintainAspectRatio="false"
+					 smoothBitmapContent="true"
+					 scaleContent="true"
+					 />
+		
+		<view:TitleSlideWidget id="titleSlideWindow"
+							   x="12" y="50"	
+							   width = "700"
+							   height="500"				
+							   visible="false"
+							   includeInLayout="{titleSlideWindow.visible}"
+							   />
+		
+	</s:Group>
+	
+	<!-- ===================================================================================
+	FULL SIZE VIDEO PREVIEW 			    
+	=================================================================================== -->	
+	
+	<s:Group id="fullSizeVideoPreviewWindowGroup"
+			 x="0" y="0" height="100%" width="100%"
+			 visible="false"
+			 >
+		
+		<s:Rect y="45" x="0" width="100%" height="100%">
+			<s:fill>
+				<s:SolidColor color="0xdddddd"/>
+			</s:fill>
+		</s:Rect>
+		
+		<s:Image id = "topBlueBarImageForFullScreenPreviewVideo"
+				 source="@Embed('assets/images/top_blue_border.png')"
+				 mouseDown="(this.parentApplication as Slides).nativeWindow.startMove();"
+				 />
+		<s:Button id="backFromFullScreenVideoPreviewButton"
+				  skinClass="com.desktop.otsuka.slidelibrary.view.skins.BackButtonSkin"
+				  top="10"
+				  left = "10"
+				  click="fullSizeVideoPreviewWindowGroup.visible = false;"
+				  />
+		<s:VideoPlayer id="fullSizePreviewVideoWindow"
+					   x="12" y="50"
+					   width="1000" height="700"			 
+					   />
+	</s:Group>
+	
+	
+	<!-- ===================================================================================
+	SPINNER 			    
+	=================================================================================== -->
+	
+	<view:CustomSpinner width="100%" height="100%" visible="false" id="customSpinner" includeInLayout="{customSpinner.visible}"	/>
+	
+	
+	<!-- ===================================================================================
+	MINIMIZE AND CLOSE BUTTONS ( always on top ) 			    
+	=================================================================================== -->		 
+	
+	<s:Button id="minimizeButton" 
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.MinimizeButtonSkin"			 
+			  click="(this.parentApplication as Slides).nativeWindow.minimize();"
+			  x = "950" y="13"
+			  />
+	<s:Button id="closeButton" 
+			  skinClass="com.desktop.otsuka.slidelibrary.view.skins.CloseButtonSkin"			
+			  click="closeButton_clickHandler(event)"
+			  x="980" y="13"
+			  enabled="{!modalCanvas.visible}"
+			  />	 
+	
+</s:Group>

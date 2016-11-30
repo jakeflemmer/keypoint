@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 clipAndEnableScrolling="false"
+		 creationComplete="group1_creationCompleteHandler(event)"
+		 >
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.model.DatabaseModel;
+			
+			import flash.events.MouseEvent;
+			
+			import mx.controls.Alert;
+			import mx.core.DragSource;
+			import mx.core.UIComponent;
+			import mx.events.DragEvent;
+			import mx.events.FlexEvent;
+			import mx.formatters.DateFormatter;
+			import mx.managers.DragManager;
+			
+			import spark.events.TextOperationEvent;
+			
+			public var presentationId:int;
+			public var customPresentationId:int;
+			
+			[Bindable]
+			private var labelBeingEdited:String = "";
+			
+			[Bindable]
+			private var nameTextSize:int = 16;
+			
+			[Bindable]
+			private var dateTextSize:int = 16;
+			
+			[Bindable]
+			private var nameTextColor:uint;
+			
+			[Bindable]
+			private var dateTextColor:uint;
+			
+			[Bindable]
+			public var chosenDateString:String = "<PRESENTATION DATE>";
+			
+			[Bindable]
+			public var chosenName:String = "<PRESENTER'S NAME>";
+			
+			public var dirtyFlag:Boolean = false;
+			
+			private var dateFormatter:DateFormatter = new DateFormatter();
+			
+			public var inEditMode:Boolean = true;
+			
+			public var chosenTimestamp:Number = 0;
+			
+			protected function group1_creationCompleteHandler(event:FlexEvent):void
+			{
+				dateFormatter.formatString = "MMM DD, YYYY";				
+			}
+			
+			public function makeTitleSlideWidgetMatchDimensionsOfUIC(uic:UIComponent,takeParent:Boolean,presId:int,$customPresentationId:int):void{
+				
+				presentationId = presId;
+				customPresentationId = $customPresentationId;
+				this.x = (takeParent ? uic.parent.x : uic.x);
+				this.y = (takeParent ? uic.parent.y : uic.y);
+				this.width = uic.width;
+				this.height = uic.height;
+				dropCanvas.width = uic.width;
+				dropCanvas.height = uic.height;			
+				
+			}
+			
+			
+			//==============================================================================
+			// DRAG AND DROP
+			//==============================================================================
+			private function mouseMoveHandler(event:MouseEvent):void 
+			{       
+				return; // descoped
+				if ( ! inEditMode ) return;
+				
+				var dragInitiator:Label=Label(event.currentTarget);
+				var ds:DragSource = new DragSource();
+				ds.addData(dragInitiator, "img");               
+				
+				DragManager.doDrag(dragInitiator, ds, event);
+			}
+			private function dragEnterHandler(event:DragEvent):void {
+				return; // descoped
+				if ( ! inEditMode ) return;
+				if (event.dragSource.hasFormat("img"))
+				{
+					DragManager.acceptDragDrop(Group(event.currentTarget));
+				}
+			}
+			private function dragDropHandler(event:DragEvent):void {
+				return; // descoped
+				if ( ! inEditMode ) return;
+				Label(event.dragInitiator).x = 
+					Group(event.currentTarget).mouseX - ((event.dragInitiator as Label).width/2);
+				Label(event.dragInitiator).y = 
+					Group(event.currentTarget).mouseY- ((event.dragInitiator as Label).height/2);
+				dirtyFlag = true;
+			}
+			//==============================================================================
+			// CLICK HANDLER
+			//==============================================================================			
+			
+			private function clickHandler(me:MouseEvent):void{
+				if ( ! inEditMode ) return;
+				
+				if ( (me.currentTarget as Label).id == "nameLabel" )
+				{
+					labelBeingEdited = "name";
+				}else{
+					labelBeingEdited = "date";
+				}
+				
+				dateChooser.visible = (labelBeingEdited == 'name' ? false : true );	
+				queueToEnterNameLabel.visible = (labelBeingEdited == 'name' ? true : false );
+				inputNameTI.visible = (labelBeingEdited == 'name' ? true : false );
+				
+				editToolsGroup.visible = true;
+				editToolsGroup.x = (labelBeingEdited == 'name' ? nameLabel.x + nameLabel.width/2 : dateLabel.x + dateLabel.width/2 );	
+				editToolsGroup.x -= editToolsGroup.width/4;
+				editToolsGroup.y = (labelBeingEdited == 'name' ? nameLabel.y : dateLabel.y  ); 
+				editToolsGroup.y += 45;
+				
+				me.stopImmediatePropagation();
+			}
+			//==============================================================================
+			// LOAD FROM DATABASE
+			//==============================================================================
+			public function loadTheTileSlideFromTheDatabase(customPresentationID:int=0):void{
+				
+				if (customPresentationID > 0) customPresentationId = customPresentationID;
+				
+				var results:Array = DatabaseModel.getInstance().getWhere(DatabaseModel.getInstance().customSQLConnection,"title_slide","custom_presentation_id",customPresentationId);
+				if ( ! results || results.length < 1 )
+				{
+					trace("NO TITLE SLIDE FOUND IN DB !");
+					resetLabelsToDefaults();
+					return;
+				}
+				var loadedSlide:Object = results[0];
+				
+ 				chosenDateString = loadedSlide.date_string;
+				chosenTimestamp = loadedSlide.chosen_timestamp;
+				//dateLabel.x = loadedSlide.date_x;
+				//dateLabel.y = loadedSlide.date_y;
+				//dateTextSize = loadedSlide.date_size;
+				//dateTextColor = loadedSlide.date_color;
+				chosenName = loadedSlide.title_string;				
+				//nameLabel.x = loadedSlide.title_x;
+				//nameLabel.y = loadedSlide.title_y;
+				//nameTextColor = loadedSlide.title_color;
+				//nameTextSize = loadedSlide.title_size;
+				resetDescopedStuff();
+				
+			}
+			public function resetLabelsToDefaults():void{
+				
+				chosenTimestamp = 0;
+				
+				chosenName = "<PRESENTER'S NAME>";
+				chosenDateString = "<PRESENTATION DATE>";
+				inputNameTI.text = chosenName;
+				nameTextColor = 0x000000;
+				dateTextColor = 0x000000;
+				nameTextSize = 16;
+				dateTextSize = 16;
+				nameLabel.x = 20;
+				nameLabel.y = 20;
+				dateLabel.x = 20;
+				dateLabel.y = 50;
+			}
+			
+			private function resetDescopedStuff():void{
+				inputNameTI.text = chosenName;
+				nameTextColor = 0x000000;
+				dateTextColor = 0x000000;
+				nameTextSize = 16;
+				dateTextSize = 16;
+				nameLabel.x = 20;
+				nameLabel.y = 20;
+				dateLabel.x = 20;
+				dateLabel.y = 50;
+			}
+							
+			//==============================================================================
+			// SAVE TO DATABASE
+			//==============================================================================
+			
+			/*	title_slide
+				======================================================================================================
+				presentation_id
+				date_string
+				date_x
+				date_y
+				date_size
+				date_color
+				title_string
+				title_x
+				title_y
+				title_color
+				title_size		*/
+				
+				
+			
+			public function saveTheTitleSlide():void{
+				
+				chosenName.split("<").join("&lt;");
+				chosenName.split(">").join("&gt;");
+				chosenDateString.split("<").join("&lt;");
+				chosenDateString.split(">").join("&gt;");
+				
+				var titleSlide:Object = new Object();
+				titleSlide.custom_presentation_id = customPresentationId;
+				titleSlide.date_string = chosenDateString;
+				titleSlide.date_x = int(dateLabel.x);
+				titleSlide.date_y = int(dateLabel.y);
+				titleSlide.date_size = dateTextSize;
+				titleSlide.date_color = dateTextColor;
+				titleSlide.title_string = chosenName;
+				titleSlide.title_x = int(nameLabel.x);
+				titleSlide.title_y = int(nameLabel.y);
+				titleSlide.title_color = nameTextColor;
+				titleSlide.title_size = nameTextSize;	
+				titleSlide.chosen_timestamp = chosenTimestamp;
+				
+				DatabaseModel.getInstance().insertATitleSlide(titleSlide);			
+				
+				dirtyFlag = false;
+			}
+			
+			//==============================================================================
+			// BITMAP
+			//==============================================================================
+			
+			public function putTheSlideAsBackDrop(slideBitmap:Bitmap,customPresentationID:int=0):void{
+				slideImage.visible = true;
+				slideImage.source = slideBitmap;
+				loadTheTileSlideFromTheDatabase(customPresentationID);
+				invalidateDisplayList();
+				validateNow();
+			}			
+			public function getTitleSlideBitmap():Bitmap{
+								
+				var bmpd:BitmapData = new BitmapData(dropCanvas.width,dropCanvas.height);
+				bmpd.draw(dropCanvas);	
+				var bmp:Bitmap = new Bitmap(bmpd);
+				slideImage.visible = false;
+				return bmp;
+			}
+			
+			//==============================================================================
+			// CLOSE
+			//==============================================================================
+
+			public function hasDirtyData():Boolean{
+				return dirtyFlag;
+			}
+			
+			protected function dropCanvas_doubleClickHandler(event:MouseEvent):void
+			{
+				if ( ! inEditMode ) return;
+				//saveTheTitleSlide(); to be done from parent view
+				close();
+			}
+			public function closeEditTools():void{
+				editToolsGroup.visible = false;
+			}
+			private function close():void{
+				
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.TITLE_SLIDE_CLOSED);
+				slidesEvent.dirtyFlag = this.dirtyFlag;
+				dispatchEvent(slidesEvent);
+			}
+			
+			protected function inputNameTI_changeHandler(event:TextOperationEvent):void
+			{
+				if ( inputNameTI.text.length > 0 && inputNameTI.text.length < 36) 
+				{ 
+					chosenName = inputNameTI.text;
+					dirtyFlag = true;
+				}else if( inputNameTI.text.length > 35)
+				{
+					Alert.show("Presentation names cannot exceed 35 characters","Attention");
+					inputNameTI.text = inputNameTI.text.substr(0,35);
+				}
+				
+			}
+			
+		]]>
+	</fx:Script>
+	
+	
+	<!-- The Canvas is the drag target --> 
+	<s:Group id="dropCanvas" 
+			   width="700" height="500"  			    
+			   contentBackgroundAlpha="0.01"
+			   contentBackgroundColor="#DDDDDD"
+			   doubleClickEnabled="true"
+			   doubleClick="dropCanvas_doubleClickHandler(event)"
+			   click="closeEditTools();"
+			   dragEnter="dragEnterHandler(event);" 
+			   dragDrop="dragDropHandler(event);">
+		
+		<s:Image id="slideImage"
+				 width="700" height="500"
+				 />
+		
+		<!-- The image is the drag initiator. -->
+		<s:Label id="nameLabel" 
+				 width = "330"
+				 height="30"
+				 text="{chosenName}" 
+				 fontSize="{nameTextSize}"
+				 color="{nameTextColor}"
+				 x= "0" y = "0"
+				 paddingTop="10"
+				 mouseMove="mouseMoveHandler(event);"
+				 click="clickHandler(event);"
+				 backgroundAlpha="1"
+				 backgroundColor="0xffffff"
+				 textAlign="center"
+				 /> 
+		
+		<s:Label id="dateLabel"
+				 width = "330"
+				 height="27"
+				 text="{chosenDateString}" 
+				 fontSize="{dateTextSize}"
+				 color="{dateTextColor}"
+				 x= "0" y = "65"
+				 mouseMove="mouseMoveHandler(event);"
+				 click="clickHandler(event);"
+				 backgroundAlpha="1"
+				 backgroundColor="0xffffff"
+				 textAlign="center"
+				 /> 
+		
+	</s:Group>
+	
+	<!-- pretty orange box -->
+	<s:Rect width="331"
+			height="53"
+			x="20"
+			y="20"
+			>
+		<s:stroke>
+			<s:SolidColorStroke color="0xFDBF57" weight="10" />
+		</s:stroke>
+	</s:Rect>
+	
+	<!-- background -->
+	
+	<s:Rect id="prettyBlackBorder"
+			width="{editToolsGroup.width+20}" height="{editToolsGroup.height+20}"
+			x="{editToolsGroup.x-10}" y="{editToolsGroup.y-10}"
+			visible="{editToolsGroup.visible}"
+			radiusX="5" radiusY="5"
+			>
+		<s:stroke>
+			<s:SolidColorStroke color="0x000000" weight="4" />
+		</s:stroke>
+	</s:Rect>
+	<s:Rect id="editToolsBackgroundRect"
+			width="{editToolsGroup.width+16}" height="{editToolsGroup.height+16}"
+			x="{editToolsGroup.x-8}" y="{editToolsGroup.y-8}"
+			visible="{editToolsGroup.visible}"
+			>
+		<s:fill>
+			<s:SolidColor color="0xdddddd" alpha="1" />
+		</s:fill>
+	</s:Rect>
+	
+	<!-- editing tools -->
+	
+	<s:VGroup id="editToolsGroup"
+			 visible="false"
+			
+			 >
+			<s:Label id="queueToEnterNameLabel" 
+					 includeInLayout="{queueToEnterNameLabel.visible}"
+					 text = "Name:"
+					 fontSize="18"
+					 />
+			<s:TextInput id="inputNameTI"
+						 includeInLayout="{inputNameTI.visible}"
+						 fontSize="18"
+						 change="inputNameTI_changeHandler(event)"
+						 width="400"
+						 />
+			<mx:DateChooser id="dateChooser" 
+							change="chosenDateString = dateFormatter.format(dateChooser.selectedDate);dirtyFlag = true; chosenTimestamp = dateChooser.selectedDate.time;"
+							width="100%"
+							includeInLayout="{dateChooser.visible}"
+							/>		
+		
+	</s:VGroup>
+	
+	
+	
+	
+	
+</s:Group>

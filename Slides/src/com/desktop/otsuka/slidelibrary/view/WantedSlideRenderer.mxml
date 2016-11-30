@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		 xmlns:s="library://ns.adobe.com/flex/spark" 
+		 xmlns:mx="library://ns.adobe.com/flex/mx" 
+		 width="152" height="93"
+		 
+		 
+		 >
+
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			import com.desktop.otsuka.slidelibrary.controller.SlidesUtilities;
+			
+			import spark.filters.DropShadowFilter;
+			public static const LARGE_THUMB_WIDTH:Number = 124; //155;
+			public static const LARGE_THUMB_HEIGHT:Number = 94; //100;
+			
+			public var slide:Object;
+			public var slideId:int;
+			public var locked:Boolean = false;	
+			
+			public var swappable:Boolean = false;
+			
+			private var bundle_id:int;
+			private var bundle_position:int;
+			private var section_id:int;
+			//private var isBundled:Boolean;
+			
+			public function init(slide:Object):void{
+				this.slide = slide;
+				this.slideId = slide.slide_id;
+				this.locked = slide.is_mandatory;
+				this.bundle_id = slide.bundle_id;
+				this.bundle_position = slide.bundle_position;
+				
+				if ( locked )
+				{
+					lockIconImage.visible = true;
+				}
+				else
+				{
+					lockIconImage.visible = false;
+				}
+				
+				// V6 SWAPPABLE
+				if ( slide.is_swappable )
+				{
+					swappable = true;
+					// V6 ARROWS ICON swappableIconImage.visible = true;
+				}
+				if ( SlidesUtilities.slideIsBundledSlide(slide) )
+				{					
+					//isBundled = true;
+					bundleHighlightRect.visible = true;
+					denotationLabel.text = slide.denotationText;
+					if ( SlidesUtilities.bundledSlideIsInSequentialBundle(slide))
+					{
+						denotationLabel.text += ( slide.bundle_position as int).toString();
+					}
+				}
+				else 
+				{
+					//isBundled = false;
+					bundleHighlightRect.visible = false;
+					denotationLabel.text = "";
+				}
+				
+				denotationLabel.setStyle("color","#FFFFFF");
+				
+//				if ( slide.denotationColor != null )
+//				{
+//					if ( denotationLabel.text == "" )
+//					{
+//						denotationLabel.text = "   .";
+//						denotationLabel.setStyle("color",slide.denotationColor);
+//					}
+//					denotationLabel.setStyle("backgroundColor",slide.denotationColor);
+//				}
+				
+				if ( slide.denotationColor != null )
+				{
+					if ( denotationLabel.text == "" )
+					{
+						denotationBundleCanvas.visible = true;
+						denotationBundleCanvas.setStyle("backgroundColor",slide.denotationColor);
+						denotationLabel.setStyle("color",slide.denotationColor);
+					}else{
+						denotationBundleCanvas.visible = false;
+					}
+					denotationLabel.setStyle("backgroundColor",slide.denotationColor);
+				}else{
+					denotationBundleCanvas.visible = false;
+				}
+				
+				if ( denotationLabel.text == "" )
+				{
+					denotationLabel.visible = false;
+				}else{
+					denotationLabel.visible = true;
+				}
+					
+			}
+			
+			public function updateSource(bitmap:Bitmap):void{
+				if ( ! bitmap ) return;
+				thumbnailImage.source = bitmap;
+//				thumbnailImage.scaleX = ( 124 / bitmap.width );
+//				thumbnailImage.scaleY = ( 93/ bitmap.height );				
+			}
+			
+			
+			protected function slideOptionsImage_clickHandler(event:MouseEvent):void
+			{
+				var yPos:Number = event.localY;
+				if ( yPos <= 31 )
+				{
+					// remove / locked / swap
+					// we first have to display the remove bundle slide rule popup before executing the swap so this will be done later
+//					if ( swappable )
+//					{
+//						if ( slide.swap_required )
+//						{
+//							dispatchEvent(new Event("SWAP_ME"));
+//							return;
+//						}
+//					}
+					if ( locked )
+					{
+						dispatchEvent(new Event(Event.DEACTIVATE));
+					}
+					else
+					{
+						trace("removing wanted slide with id : " + slideId);
+						dispatchEvent(new Event("REMOVE_ME"));		
+					}					
+				}
+				else if ( yPos > 31 && yPos <=62 )
+				{
+					// display info
+					dispatchEvent(new Event("SHOW_INFO"));
+				}
+				else if ( yPos > 62 )
+				{
+					// preview
+					dispatchEvent(new Event("PREVIEW_ME"));					
+				}
+				else
+				{
+					throw new Error("weird yposition : " + yPos);
+				}				
+			}
+			
+			protected function thumbnailImage_doubleClickHandler(event:MouseEvent):void
+			{
+				var slidesEvent:SlidesEvent = new SlidesEvent(SlidesEvent.ZOOM_IN_ON_SLIDE);
+				slidesEvent.bitmap = thumbnailImage.source as Bitmap;
+				slidesEvent.slide = slide;
+				dispatchEvent(slidesEvent);				
+			}
+			
+		]]>
+	</fx:Script>
+	
+	<!-- OUTER BORDER WITH DROPSHADOWS -->
+	<s:Rect id="outerBorderRect"
+			width="152" height="93"
+			radiusX="2" radiusY="2"
+			>
+			<s:stroke>
+				<s:SolidColorStroke color="0x000000" weight="2"/>
+			</s:stroke>
+		<s:filters>
+			<s:DropShadowFilter color="0x000000"  /> 
+		</s:filters>	
+	</s:Rect>
+	
+	
+	<s:Image id="thumbnailImage" 
+			 width="124" height="93"
+			 fillMode="scale"
+			 scaleMode="stretch"
+			
+			 doubleClickEnabled="true"			 
+			 doubleClick="thumbnailImage_doubleClickHandler(event)"/>
+	
+	<s:Label id="denotationLabel"
+			 x = "0"
+			 bottom="0"
+			 fontWeight="bold"
+			 color="white"
+			 backgroundAlpha="1"
+			 backgroundColor="0x000000"
+			 fontSize="14"
+			  paddingRight="5" paddingTop="5" 
+			  paddingLeft="5" paddingBottom="5"
+			 />
+	
+	<!--  smooth="true"		removed to improve performance
+	smoothingQuality="high" -->
+	
+	<s:Image id="slideOptionsImage"
+			 source = "@Embed('assets/images/slideOptions.png')"
+			 x = "123" 
+			 click="slideOptionsImage_clickHandler(event)"
+			 />
+	
+	<s:Image id="lockIconImage"
+			 source = "@Embed('assets/images/lockedSlideOptions.png')"
+			 x = "123"
+			 y = "0"			 
+			 visible="false"
+			 click="slideOptionsImage_clickHandler(event)"
+			 />
+	
+
+	
+	
+	<!-- V6 DENOTATION COLOR SQUARE -->
+	
+	<mx:Canvas id="denotationBundleCanvas"
+			   width="30" height="20"
+			   backgroundAlpha="1"
+			   backgroundColor="#000000"
+			   bottom="0"
+			   />
+	
+	<!-- BUNDLE HIGHLIGHT -->
+	<s:Rect id="bundleHighlightRect"
+			width="152" height="93"
+			radiusX="2" radiusY="2"
+			visible="false"
+			>
+		<s:stroke>
+			<s:SolidColorStroke color="0x000000" weight="7"/>
+		</s:stroke>			
+	</s:Rect>
+
+	
+			 
+</s:Group>

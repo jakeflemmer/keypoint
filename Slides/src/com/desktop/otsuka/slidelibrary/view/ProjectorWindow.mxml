@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Window xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		  xmlns:s="library://ns.adobe.com/flex/spark" 
+		  xmlns:mx="library://ns.adobe.com/flex/mx"
+		  showStatusBar="false"
+		  >
+
+	<fx:Script>
+		<![CDATA[
+			import com.desktop.otsuka.slidelibrary.controller.SlidesEvent;
+			
+			import flash.utils.setTimeout;
+			
+			import mx.controls.Alert;
+			import mx.controls.SWFLoader;
+			
+			import spark.core.SpriteVisualElement;
+			public var swfLoader:SWFLoader;// = new SWFLoader();
+			
+			
+			// =========================================================================
+			// PUBLIC FUNCTIONS            =============================================
+			// =========================================================================
+			
+			public function init():void{
+			}
+			public function displayVideo(source:String):void{
+				videoPlayer.source = source;
+				videoPlayer.play();
+				videoPlayer.visible = true;
+				imageWindow.visible = false;
+			}			
+			public function displayImage(source:Object):void{
+				
+				if ( source is MovieClip )
+				{
+					throw new Error("trying to show movie as image");
+					Alert.show("trying to show movie as image");
+					
+				}else{
+					imageWindow.source = source;
+					imageWindow.visible = true;
+					videoPlayer.visible = false;
+				}
+			}
+			public function displaySwfLoader($swfLoader:SWFLoader):void{
+				videoPlayer.visible = false;
+				imageWindow.visible = true;
+				setTimeout(function():void{
+					swfLoader = $swfLoader;
+					group.removeAllElements();
+					swfLoader.width = group.width;
+					swfLoader.height = group.height;
+					group.addElement(swfLoader);
+					setTimeout(function ():void{
+						imageWindow.visible = false;
+					},100);
+				},100);
+			}
+			
+			
+			
+			//=================================================================================
+			// DIM or BLACKOUT SLIDE
+			//=================================================================================
+
+			public var SpriteElement:SpriteVisualElement = new SpriteVisualElement ();
+			public var mySprite:Sprite = new Sprite();
+			
+			public function createDimOverlay():void
+			{
+				dimOverlayShape.visible = false;
+				dimOverlayShape.width = stage.stageWidth;
+				dimOverlayShape.height = stage.stageHeight;
+				
+			/* 	mySprite.graphics.lineStyle(1,0x000000,1.0);
+				mySprite.graphics.beginFill(0x000000,1);
+				mySprite.graphics.drawRect(0,0,stage.stageWidth,stage.stageHeight );
+				trace("DIM FUNCTION");
+				
+				SpriteElement.addChild(mySprite);
+				SpriteElement.alpha =0;
+				this.addElement(SpriteElement); */
+			}
+			
+			public function removeDimOverlay():void
+			{  
+				//this.removeElement(SpriteElement);
+				dimOverlayShape.visible = false
+			}
+			
+			public function dimOverlay(dimToggle:Boolean):void
+			{
+				var VideoPlayer_View:PresentView;
+				trace ("dimToggle "+dimToggle);
+			
+				if(dimToggle){	
+					dimOverlayShape.visible = true;
+					//SpriteElement.alpha =1;
+				}
+				else if(!dimToggle)
+				{
+					dimOverlayShape.visible = false;
+					
+					//SpriteElement.alpha =0;
+				}
+			} 
+			
+			//=================================================================================
+			// TITLE SLIDE
+			//=================================================================================
+			
+			public function displayTitleSlideWidget(titleSlideWidget:TitleSlideWidget):void{
+				
+				titleSlideWidget.scaleX = group.width/titleSlideWidget.width;
+				titleSlideWidget.scaleY = group.height/titleSlideWidget.height;
+				//this.addElement( titleSlideWidget );
+				widgetGroup.addElement(titleSlideWidget );
+			}
+			
+			//=================================================================================
+			// GIVE THE SWF LOADER
+			//=================================================================================
+			
+			public function getTheSwfLoader():void{
+				var bitmap:Bitmap = screenCaptureTheActualSwf(); // which calls				
+				projectTheScreenCapture(bitmap);
+				setTimeout(function():void{
+					group.removeAllElements();
+					var se:SlidesEvent = new SlidesEvent(SlidesEvent.SEND_SWF_FROM_PROJECTOR_TO_PREVIEW);
+					se.swfLoader = swfLoader;
+					dispatchEvent(se);	
+				},100);				
+			}
+			public function projectScreenCapture():void{
+				var bitmap:Bitmap = screenCaptureTheActualSwf(); // which calls				
+				projectTheScreenCapture(bitmap);								
+			}
+			private function screenCaptureTheActualSwf():Bitmap{
+				trace("projector window screen capturing - group kids = " + group.numElements);
+				var bmpd:BitmapData = new BitmapData(group.width,group.height);
+				bmpd.draw(group,null,null,null,null,true);	
+				var bmp:Bitmap = new Bitmap(bmpd);
+				return bmp;
+				
+			}
+			private function projectTheScreenCapture(bitmap:Bitmap):void{
+				trace("projector window displaying screen capture now");				
+				imageWindow.source = bitmap;
+				setTimeout(function ():void{
+					imageWindow.visible = true;	
+				},100);
+				
+			}
+			
+			//=================================================================================
+			// RECEIVE THE SWF LOADER
+			//=================================================================================
+			
+			public function receiveSwfLoaderBack(swfLdr:SWFLoader):void{
+				
+				this.swfLoader = swfLdr;
+				swfLdr.width = group.width;
+				swfLdr.height = group.height;
+				group.addElement(swfLdr);
+				trace("real swf added back to projector window");
+				setTimeout(function ():void {
+					imageWindow.visible = false;
+					videoPlayer.visible = false;
+					trace("projector screen captured image hidden");
+				},100);
+			}			
+			
+			// =========================================================================
+			// WORKER FUNCTIONS            =============================================
+			// =========================================================================
+			
+			
+			
+			
+			
+			
+		]]>
+	</fx:Script>
+	
+	
+	<s:Group 
+			 id="group"
+			 />
+	
+	<s:Image id="imageWindow"
+				
+			 smooth="true"
+			 smoothingQuality="high"
+			 click="trace('clicked image');"
+			 includeInLayout="{imageWindow.visible}"
+			 />
+	
+	
+	
+	<s:VideoDisplay id="videoPlayer"					
+					includeInLayout="{videoPlayer.visible}"
+					scaleMode="stretch"
+					/>
+	
+	<s:Group id="widgetGroup" />
+	
+	<s:Rect id="dimOverlayShape" visible="{dimOverlayShape.visible}">
+		<s:fill>
+			<s:SolidColor color="0x000000"/>
+		</s:fill>
+		
+		
+	</s:Rect>
+    
+	
+	
+</s:Window>
